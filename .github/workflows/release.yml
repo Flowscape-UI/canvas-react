@@ -1,7 +1,7 @@
 name: Release
 on:
   push:
-    branches: [ main ]
+    branches: [main]
 
 permissions:
   contents: write
@@ -50,10 +50,20 @@ jobs:
           NPM_CONFIG_PROVENANCE: true
 
       - name: Publish to GitHub Packages (npm.pkg.github.com)
-        if: steps.changesets.outputs.published == 'true'
+        if: always()
         run: |
-          echo "Publishing to GitHub Packages registry"
-          npm whoami --registry=https://npm.pkg.github.com/
-          npm publish --access public --registry=https://npm.pkg.github.com/
+          set -e
+          PKG_NAME=$(node -p "require('./package.json').name")
+          echo "Checking if $PKG_NAME exists in GitHub Packages registry..."
+          # Configure npm for GitHub Packages
+          echo "@flowscape-ui:registry=https://npm.pkg.github.com" > ~/.npmrc
+          echo "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}" >> ~/.npmrc
+          npm whoami --registry=https://npm.pkg.github.com/ || true
+          if npm view "$PKG_NAME" version --registry=https://npm.pkg.github.com/ >/dev/null 2>&1; then
+            echo "$PKG_NAME already exists in GitHub Packages — skipping publish."
+          else
+            echo "Publishing $PKG_NAME to GitHub Packages registry"
+            npm publish --access public --registry=https://npm.pkg.github.com/
+          fi
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN }}
