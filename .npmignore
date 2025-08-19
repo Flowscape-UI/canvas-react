@@ -1,0 +1,14 @@
+# Even though we use the `files` field, keep this for safety
+src/
+doc/
+.github/
+.vscode/
+.playwright/
+coverage/
+storybook-static/
+stories/
+scripts/
+
+# Env and config
+.env*
+*.tsbuildinfo

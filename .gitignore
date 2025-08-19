@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+/dist/
+/storybook-static/
+/coverage/
+/test-results/
+.playwright/
+
+# TypeScript
+*.tsbuildinfo
+
+# Env files
+.env*
+
+# Editors/OS
+.DS_Store
+.idea/
+.vscode/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Bun
+bun.lockb

@@ -1,0 +1,32 @@
+# @flowscape-ui/canvas-react
+
+[![npm version](https://img.shields.io/npm/v/%40flowscape-ui%2Fcanvas-react?logo=npm&color=CB3837)](https://www.npmjs.com/package/@flowscape-ui/canvas-react)
+[![CI](https://github.com/Flowscape-UI/canvas-react/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Flowscape-UI/canvas-react/actions/workflows/ci.yml)
+[![Storybook](https://img.shields.io/badge/Storybook-Live-FF4785?logo=storybook&logoColor=white)](https://flowscape-ui.github.io/canvas-react/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+High-performance React library for an interactive infinite canvas with nodes, pan/zoom, selection, history, and a plugin-friendly architecture.
+
+## Install
+
+Peer deps: React 18+
+
+```bash
+bun add @flowscape-ui/canvas-react
+# or
+npm i @flowscape-ui/canvas-react
+```
+
+## Usage (very basic)
+
+```tsx
+import { Canvas } from '@flowscape-ui/canvas-react';
+
+export default function App() {
+  return <Canvas style={{ width: 800, height: 600, border: '1px solid #ddd' }} />;
+}
+```
+
+## License
+
+MIT

@@ -1,0 +1,15 @@
+# CODEOWNERS
+# Docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owners for everything in the repo
+* @binary-shadow @NiceArti
+
+# Explicit ownership (covers key areas)
+/src/react/ @binary-shadow @NiceArti
+/src/core/  @binary-shadow @NiceArti
+/doc/       @binary-shadow @NiceArti
+/.github/   @binary-shadow @NiceArti
+
+# Discussions: ownership applies to discussion templates stored in the repo
+# (actual Discussions are managed via repo settings, not CODEOWNERS)
+/.github/DISCUSSION_TEMPLATE/ @binary-shadow @NiceArti

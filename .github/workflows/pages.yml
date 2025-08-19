@@ -1,0 +1,88 @@
+name: Storybook Pages
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: 'pages'
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: 1.1.9
+
+      - name: Install deps
+        run: bun install --frozen-lockfile
+
+      - name: Build Storybook (or placeholder)
+        run: |
+          set -e
+          # Try to run the project's Storybook build.
+          # If Storybook isn't set up yet, create a placeholder site so Pages deploy succeeds.
+          if bun run storybook:build; then
+            echo "Storybook build step completed."
+          else
+            echo "No Storybook yet — generating placeholder site."
+          fi
+          mkdir -p storybook-static
+          if [ ! -f storybook-static/index.html ]; then
+            cat > storybook-static/index.html <<'HTML'
+            <!doctype html>
+            <html lang="en">
+              <head>
+                <meta charset="UTF-8" />
+                <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+                <title>@flowscape-ui/canvas-react — Storybook (placeholder)</title>
+                <style>
+                  html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
+                  main { display: grid; place-items: center; height: 100%; background: #0f172a; color: #e2e8f0; }
+                  .card { padding: 2rem 2.5rem; border-radius: 12px; background: #111827; box-shadow: 0 10px 30px rgba(0,0,0,.4); max-width: 720px; }
+                  h1 { margin: 0 0 .75rem; font-size: 1.5rem; }
+                  p { margin: .5rem 0; line-height: 1.6; }
+                  code { background: #0b1020; padding: .15rem .35rem; border-radius: 4px; color: #93c5fd; }
+                  a { color: #93c5fd; }
+                </style>
+              </head>
+              <body>
+                <main>
+                  <div class="card">
+                    <h1>@flowscape-ui/canvas-react — Storybook</h1>
+                    <p>Плейсхолдер. Storybook будет собираться и публиковаться сюда, как только он будет добавлен в проект.</p>
+                    <p>Репозиторий: <a href="https://github.com/Flowscape-UI/canvas-react">Flowscape-UI/canvas-react</a></p>
+                    <p>Пакет npm: <a href="https://www.npmjs.com/package/@flowscape-ui/canvas-react">@flowscape-ui/canvas-react</a></p>
+                    <p>Соберите Storybook локально: <code>bun run storybook</code> (после добавления Storybook в проект).</p>
+                  </div>
+                </main>
+              </body>
+            </html>
+            HTML
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: storybook-static
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
