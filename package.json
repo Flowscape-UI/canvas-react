@@ -1,6 +1,6 @@
 {
   "name": "@flowscape-ui/canvas-react",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "High-performance Open Source React library for an interactive infinite canvas with nodes, pan/zoom, selection, history, and a plugin-friendly architecture.",
   "license": "Apache-2.0",
   "type": "module",
