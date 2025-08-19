@@ -4,6 +4,7 @@
 [![CI](https://github.com/Flowscape-UI/canvas-react/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Flowscape-UI/canvas-react/actions/workflows/ci.yml)
 [![Storybook](https://img.shields.io/badge/Storybook-Live-FF4785?logo=storybook&logoColor=white)](https://flowscape-ui.github.io/canvas-react/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Buy Me a Coffee](https://img.shields.io/badge/Donate-Buy%20Me%20a%20Coffee-FFDD00?logo=buymeacoffee&logoColor=000)](https://buymeacoffee.com/flowscape)
 
 High-performance React library for an interactive infinite canvas with nodes, pan/zoom, selection, history, and a plugin-friendly architecture.
 
