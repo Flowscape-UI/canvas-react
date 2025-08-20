@@ -1,4 +1,4 @@
-name: Gitleaks
+name: Secret Scan (TruffleHog)
 on: [push, pull_request]
 
 jobs:
@@ -9,6 +9,8 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@v4
-      - uses: gitleaks/gitleaks-action@v2
+      - name: TruffleHog scan
+        uses: trufflesecurity/trufflehog@main
         with:
-          args: 'detect --no-banner --redact --verbose'
+          path: .
+          extra_args: --only-verified
