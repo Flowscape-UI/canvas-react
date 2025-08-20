@@ -5,6 +5,7 @@ const preview: Preview = {
     layout: 'centered',
     controls: { expanded: true },
   },
+  tags: ['autodocs'],
 };
 
 export default preview;
