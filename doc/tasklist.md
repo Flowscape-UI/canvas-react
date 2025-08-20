@@ -57,31 +57,63 @@
 
 Статусы: pending | in_progress | blocked | done
 
-| ID      | Этап     | Задача                | Описание                                                                      | Ответственный | Старт      | Дедлайн    | Статус  | Ссылки                                                                    |
-| ------- | -------- | --------------------- | ----------------------------------------------------------------------------- | ------------- | ---------- | ---------- | ------- | ------------------------------------------------------------------------- |
-| P-01    | Project  | Scaffolding (Bun)     | `package.json`, `tsconfig.json`, `rollup.config.ts`, базовая структура `src/` | -             | 2025-08-18 | 2025-08-20 | pending | `doc/vision.md`                                                           |
-| P-02    | Project  | Repo policies         | `SECURITY.md`, `CONTRIBUTING.md`, `CODEOWNERS`                                | -             | 2025-08-18 | 2025-08-22 | done    | `/.github/SECURITY.md`, `/.github/CONTRIBUTING.md`, `/.github/CODEOWNERS` |
-| CI-01   | CI/CD    | CI workflow           | `.github/workflows/ci.yml` (typecheck/lint/test/build/storybook:build)        | -             | 2025-08-19 | 2025-08-20 | done    | `doc/vision.md`, `/.github/workflows/ci.yml`                              |
-| CI-02   | CI/CD    | Release workflow      | `.github/workflows/release.yml` (Changesets + npm publish, provenance)        | -             | 2025-08-20 | 2025-08-21 | done    | `doc/vision.md`, `/.github/workflows/release.yml`                         |
-| CI-03   | CI/CD    | Pages workflow        | `.github/workflows/pages.yml` (Storybook → Pages)                             | -             | 2025-08-20 | 2025-08-21 | pending | `doc/vision.md`                                                           |
-| SEC-01  | Security | .gitignore/.npmignore | Исключения для секретов/артефактов; `files` в `package.json`                  | -             | 2025-08-19 | 2025-08-19 | pending | `doc/vision.md`                                                           |
-| SEC-02  | Security | CodeQL                | Настроить `CodeQL` workflow                                                   | -             | 2025-08-22 | 2025-08-22 | pending | `doc/vision.md`                                                           |
-| SEC-03  | Security | Gitleaks              | Настроить `Gitleaks` workflow                                                 | -             | 2025-08-22 | 2025-08-22 | pending | `doc/vision.md`                                                           |
-| SEC-04  | Security | Dependabot            | `.github/dependabot.yml` (npm + actions)                                      | -             | 2025-08-22 | 2025-08-22 | pending | `doc/vision.md`                                                           |
-| CORE-01 | Core     | Координаты/камера     | Модель `world/screen`, `zoom`, `offset`, преобразования                       | -             | 2025-08-19 | 2025-08-23 | pending | `doc/vision.md`                                                           |
-| CORE-02 | Core     | Ввод/события          | Pointer/Wheel/Keyboard, жесты навигации                                       | -             | 2025-08-20 | 2025-08-24 | pending |                                                                           |
-| CORE-03 | Core     | Store и селекторы     | Лёгкий стор, подписки/селекторы, API-хуки                                     | -             | 2025-08-20 | 2025-08-25 | pending |                                                                           |
-| CORE-04 | Core     | Узлы (CRUD)           | Типы узлов, добавление/удаление/обновление                                    | -             | 2025-08-21 | 2025-08-26 | pending |                                                                           |
-| CORE-05 | Core     | Select & DnD          | Выбор/снятие, перетаскивание узлов                                            | -             | 2025-08-22 | 2025-08-27 | pending |                                                                           |
-| CORE-06 | Core     | История               | Командная модель, undo/redo, coalescing                                       | -             | 2025-08-23 | 2025-08-28 | pending |                                                                           |
-| UI-01   | UI       | Canvas/NodeView       | Базовый рендер узлов, overlay-хендлеры                                        | -             | 2025-08-22 | 2025-08-27 | pending |                                                                           |
-| UI-02   | UI       | Background            | Лёгкий фон: grid/dots (один вариант для MVP)                                  | -             | 2025-08-24 | 2025-08-27 | pending |                                                                           |
-| DOC-01  | Docs     | Storybook             | Конфиг 8.x (Vite), примеры, аддоны                                            | -             | 2025-08-21 | 2025-08-26 | pending |                                                                           |
-| QA-01   | QA       | Unit/Integration      | Vitest + RTL: ядро/редьюсеры/компоненты                                       | -             | 2025-08-21 | 2025-08-28 | pending |                                                                           |
-| QA-02   | QA       | E2E (минимум)         | Playwright: smoke (навигация/зум)                                             | -             | 2025-08-26 | 2025-08-29 | pending |                                                                           |
-| REL-01  | Release  | Changesets init       | Инициализация Changesets, первый changeset                                    | -             | 2025-08-21 | 2025-08-21 | done    | `/.changeset/config.json`, `/.changeset/initial-release.md`               |
-| REL-02  | Release  | v0.1.0 (MVP)          | Срез функционала, релиз в npm, Pages доступен                                 | -             | 2025-08-29 | 2025-08-30 | pending |                                                                           |
-| POST-01 | Post     | Мониторинг            | Size-limit/Bundle analyzer, отчёт                                             | -             | 2025-08-30 | 2025-09-01 | pending |                                                                           |
+### Project
+
+| ID   | Задача            | Описание                                                                      | Старт      | Дедлайн    | Статус | Ссылки                                                                    |
+| ---- | ----------------- | ----------------------------------------------------------------------------- | ---------- | ---------- | ------ | ------------------------------------------------------------------------- |
+| P-01 | Scaffolding (Bun) | `package.json`, `tsconfig.json`, `rollup.config.ts`, базовая структура `src/` | 2025-08-18 | 2025-08-20 | done   | `doc/vision.md`                                                           |
+| P-02 | Repo policies     | `SECURITY.md`, `CONTRIBUTING.md`, `CODEOWNERS`                                | 2025-08-18 | 2025-08-22 | done   | `/.github/SECURITY.md`, `/.github/CONTRIBUTING.md`, `/.github/CODEOWNERS` |
+
+### CI/CD
+
+| ID    | Задача           | Описание                                                               | Старт      | Дедлайн    | Статус | Ссылки                                            |
+| ----- | ---------------- | ---------------------------------------------------------------------- | ---------- | ---------- | ------ | ------------------------------------------------- |
+| CI-01 | CI workflow      | `.github/workflows/ci.yml` (typecheck/lint/test/build/storybook:build) | 2025-08-19 | 2025-08-20 | done   | `doc/vision.md`, `/.github/workflows/ci.yml`      |
+| CI-02 | Release workflow | `.github/workflows/release.yml` (Changesets + npm publish)             | 2025-08-20 | 2025-08-21 | done   | `doc/vision.md`, `/.github/workflows/release.yml` |
+| CI-03 | Pages workflow   | `.github/workflows/pages.yml` (Storybook → Pages)                      | 2025-08-20 | 2025-08-21 | done   | `doc/vision.md`, `/.github/workflows/pages.yml`   |
+
+### Security
+
+| ID     | Задача                | Описание                                                     | Старт      | Дедлайн    | Статус  | Ссылки          |
+| ------ | --------------------- | ------------------------------------------------------------ | ---------- | ---------- | ------- | --------------- |
+| SEC-01 | .gitignore/.npmignore | Исключения для секретов/артефактов; `files` в `package.json` | 2025-08-19 | 2025-08-19 | done    | `doc/vision.md` |
+| SEC-02 | CodeQL                | Настроить `CodeQL` workflow                                  | 2025-08-22 | 2025-08-22 | done    | `/.github/workflows/codeql.yml` |
+| SEC-03 | Gitleaks              | Настроить `Gitleaks` workflow                                | 2025-08-22 | 2025-08-22 | done    | `/.github/workflows/gitleaks.yml` |
+| SEC-04 | Dependabot            | `.github/dependabot.yml` (npm + actions)                     | 2025-08-22 | 2025-08-22 | done    | `/.github/dependabot.yml` |
+
+### Core
+
+| ID      | Задача            | Описание                                                | Старт      | Дедлайн    | Статус  |
+| ------- | ----------------- | ------------------------------------------------------- | ---------- | ---------- | ------- |
+| CORE-01 | Координаты/камера | Модель `world/screen`, `zoom`, `offset`, преобразования | 2025-08-19 | 2025-08-23 | pending |
+| CORE-02 | Ввод/события      | Pointer/Wheel/Keyboard, жесты навигации                 | 2025-08-20 | 2025-08-24 | pending |
+| CORE-03 | Store и селекторы | Лёгкий стор, подписки/селекторы, API-хуки               | 2025-08-20 | 2025-08-25 | pending |
+| CORE-04 | Узлы (CRUD)       | Типы узлов, добавление/удаление/обновление              | 2025-08-21 | 2025-08-26 | pending |
+| CORE-05 | Select & DnD      | Выбор/снятие, перетаскивание узлов                      | 2025-08-22 | 2025-08-27 | pending |
+| CORE-06 | История           | Командная модель, undo/redo, coalescing                 | 2025-08-23 | 2025-08-28 | pending |
+
+### UI & Docs
+
+| ID     | Раздел | Задача          | Описание                                     | Старт      | Дедлайн    | Статус  |
+| ------ | ------ | --------------- | -------------------------------------------- | ---------- | ---------- | ------- |
+| UI-01  | UI     | Canvas/NodeView | Базовый рендер узлов, overlay-хендлеры       | 2025-08-22 | 2025-08-27 | pending |
+| UI-02  | UI     | Background      | Лёгкий фон: grid/dots (один вариант для MVP) | 2025-08-24 | 2025-08-27 | pending |
+| DOC-01 | Docs   | Storybook       | Конфиг 8.x (Vite), примеры, аддоны           | 2025-08-21 | 2025-08-26 | pending |
+
+### QA
+
+| ID    | Задача           | Описание                                | Старт      | Дедлайн    | Статус  |
+| ----- | ---------------- | --------------------------------------- | ---------- | ---------- | ------- |
+| QA-01 | Unit/Integration | Vitest + RTL: ядро/редьюсеры/компоненты | 2025-08-21 | 2025-08-28 | pending |
+| QA-02 | E2E (минимум)    | Playwright: smoke (навигация/зум)       | 2025-08-26 | 2025-08-29 | pending |
+
+### Release
+
+| ID      | Задача          | Описание                                      | Старт                             | Дедлайн    | Статус     | Ссылки                                                      |
+| ------- | --------------- | --------------------------------------------- | --------------------------------- | ---------- | ---------- | ----------------------------------------------------------- | ------- | --- |
+| REL-01  | Changesets init | Инициализация Changesets, первый changeset    | 2025-08-21                        | 2025-08-21 | done       | `/.changeset/config.json`, `/.changeset/initial-release.md` |
+| REL-02  | v0.1.0 (MVP)    | Срез функционала, релиз в npm, Pages доступен | 2025-08-29                        | 2025-08-30 | pending    |                                                             |
+| POST-01 | Post            | Мониторинг                                    | Size-limit/Bundle analyzer, отчёт | -          | 2025-08-30 | 2025-09-01                                                  | pending |     |
 
 > Примечание: даты ориентировочные, можно корректировать релиз-план по мере прогресса.
 
