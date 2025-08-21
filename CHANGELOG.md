@@ -1,5 +1,14 @@
 # @flowscape-ui/canvas-react
 
+## 0.1.3
+
+### Patch Changes
+
+- [#11](https://github.com/Flowscape-UI/canvas-react/pull/11) [`4f29868`](https://github.com/Flowscape-UI/canvas-react/commit/4f298683d15ceedfa47a6eb2359e0b4376927264) Thanks [@binary-shadow](https://github.com/binary-shadow)! - - test: add NodeView drag-and-drop UI test verifying hit-testing (no canvas pan), node move, and single history batch
+  - chore: add PointerEvent polyfill for jsdom tests
+  - docs(README): document DnD behavior, hit-testing, and history batching/undo-redo
+  - docs(tasklist): mark CORE-05c/CORE-05d/CORE-06 and CORE-05 as done
+
 ## 0.1.2
 
 ### Patch Changes
