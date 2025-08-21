@@ -55,6 +55,8 @@ export function zoomAtPoint(camera: Camera, screenPoint: Point, factor: number, 
  * Usage example: style={{ transform: cameraToCssTransform(camera) }}
  */
 export function cameraToCssTransform(camera: Camera): string {
-  // translate in world units, then scale; keeps worldToScreen mapping: (x - offset) * zoom
-  return `translate(${-camera.offsetX}px, ${-camera.offsetY}px) scale(${camera.zoom})`;
+  // CSS applies transform functions right-to-left.
+  // We need translate first, then scale to satisfy: screen = (x - offset) * zoom.
+  // Therefore write: scale(...) translate(...), so translate runs first.
+  return `scale(${camera.zoom}) translate(${-camera.offsetX}px, ${-camera.offsetY}px)`;
 }
