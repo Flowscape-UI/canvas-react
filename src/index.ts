@@ -4,5 +4,7 @@ export * from './types';
 export * from './state/store';
 export * from './react/useCanvasNavigation';
 export * from './react/BackgroundDots';
+export * from './react/BackgroundCells';
+export * from './react/useWorldLockedTile';
 export * from './react/NodeView';
 export * from './react/useCanvasHelpers';

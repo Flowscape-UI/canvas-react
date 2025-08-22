@@ -1,5 +1,39 @@
 # @flowscape-ui/canvas-react
 
+## 1.0.0
+
+### Major Changes
+
+- Remove deprecated `wheelSensitivity`; clarify zoom sensitivities; document `dprSnap`.
+  - BREAKING: removed `wheelSensitivity` from `useCanvasNavigation` and Storybook controls.
+    - Legacy `wheelBehavior: 'zoom'` now uses device-specific sensitivities consistently.
+    - Migration:
+      - Before:
+        ```ts
+        useCanvasNavigation(ref, {
+          wheelBehavior: 'auto',
+          wheelModifier: 'ctrl',
+          wheelSensitivity: 0.002,
+        });
+        ```
+      - After:
+        ```ts
+        useCanvasNavigation(ref, {
+          wheelBehavior: 'auto',
+          wheelModifier: 'ctrl',
+          mouseZoomSensitivityIn: 0.002,
+          mouseZoomSensitivityOut: 0.002,
+          // optional touchpad overrides
+          touchpadZoomSensitivityIn: 0.0015,
+          touchpadZoomSensitivityOut: 0.0015,
+        });
+        ```
+  - Zoom sensitivity defaults: when omitted, each of `mouseZoomSensitivityIn/Out` and `touchpadZoomSensitivityIn/Out` defaults to `0.0015`.
+  - Docs: added a dedicated `dprSnap` section for world-locked backgrounds (`BackgroundDots`, `BackgroundCells`) with examples and SSR/test guidance (numeric DPR override).
+  - Docs: updated Navigation Options section and added a migration note with before/after snippets.
+  - Behavior note: in `'auto'`/`'pan'`, the wheel modifier is ignored for pinch/`Ctrl+wheel` zoom; `Shift` is reserved for horizontal panning.
+  - Housekeeping: rebuilt `dist/` and Storybook static.
+
 ## 0.1.3
 
 ### Patch Changes

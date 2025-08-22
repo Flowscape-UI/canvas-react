@@ -26,14 +26,20 @@ npm i @flowscape-ui/canvas-react
   - Multi-select: Ctrl/Cmd + left-click toggles node in selection.
   - Deselect: left-click on empty canvas area (a simple click without dragging).
   - Shift is reserved for future features (e.g., range/box selection).
- - Drag & History:
-   - Drag nodes (single or multi-select) without panning the canvas thanks to hit-testing.
-   - Dragging batches updates into a single history entry; Undo/Redo reverts/applies the whole drag as one action.
+- Drag & History:
+  - Drag nodes (single or multi-select) without panning the canvas thanks to hit-testing.
+  - Dragging batches updates into a single history entry; Undo/Redo reverts/applies the whole drag as one action.
 
 ### Example: Basic Canvas with Navigation and Node Views
 
 ```tsx
-import { Canvas, NodeView, useNodeActions, useNodes, useCanvasNavigation } from '@flowscape-ui/canvas-react';
+import {
+  Canvas,
+  NodeView,
+  useNodeActions,
+  useNodes,
+  useCanvasNavigation,
+} from '@flowscape-ui/canvas-react';
 import { useRef, useEffect } from 'react';
 
 export default function Example() {
@@ -59,6 +65,33 @@ export default function Example() {
     </Canvas>
   );
 }
+```
+
+#### Migration from `wheelSensitivity` (breaking)
+
+The legacy `wheelSensitivity` option has been removed. Use the device‑specific sensitivity props instead. Defaults are `0.0015`.
+
+Before:
+
+```tsx
+useCanvasNavigation(ref, {
+  wheelBehavior: 'auto',
+  wheelModifier: 'ctrl',
+  wheelSensitivity: 0.002,
+});
+```
+
+After:
+
+```tsx
+useCanvasNavigation(ref, {
+  wheelBehavior: 'auto',
+  wheelModifier: 'ctrl',
+  mouseZoomSensitivityIn: 0.002,
+  mouseZoomSensitivityOut: 0.002,
+  touchpadZoomSensitivityIn: 0.0015, // optional override
+  touchpadZoomSensitivityOut: 0.0015, // optional override
+});
 ```
 
 ### Add nodes at the visible center (regardless of zoom)
@@ -103,6 +136,7 @@ export default function EmbeddedCenterAdd() {
 ```
 
 Notes:
+
 - The placement includes a small diagonal offset per subsequent node so that multiple adds do not overlap completely.
 - The visual offset is stable across zoom levels.
 
@@ -128,9 +162,9 @@ type NodeAppearance = {
   shadow: string;
   hoverShadow: string;
   selectedShadow?: string;
-  padding: number;      // applied only when no children
-  fontSize: number;     // applied only when no children
-  fontWeight: number;   // applied only when no children
+  padding: number; // applied only when no children
+  fontSize: number; // applied only when no children
+  fontWeight: number; // applied only when no children
 };
 ```
 
@@ -198,11 +232,115 @@ If you prefer to fully control visuals:
 - Focus behavior: the canvas automatically focuses itself on pointer down (both on nodes and empty area) so shortcuts work immediately. The root is focusable via `tabIndex` (default `0`); you can override with `<Canvas tabIndex={-1} />` to disable focus, or another value to suit your app.
 - Shortcuts are ignored when the event originates from text inputs or contenteditable elements.
 
+## Navigation Options (Wheel & Touchpad)
+
+The hook `useCanvasNavigation(ref, options)` supports modern and legacy wheel behaviors. Default zoom bounds are 0.6–2.4 (60–240%).
+
+- **wheelBehavior**: `'auto' | 'zoom' | 'pan'`
+  - `'auto'` (default):
+    - Mouse wheel pans vertically; `Shift+wheel` pans horizontally.
+    - `Ctrl+wheel` zooms.
+    - Touchpad: two-finger pan; pinch (`Ctrl+wheel`) zooms.
+  - `'zoom'`: legacy — wheel zooms by default (respects `wheelModifier`).
+  - `'pan'`: wheel always pans; zoom only with `Ctrl+wheel`/pinch.
+
+- **wheelModifier**: `'none' | 'alt' | 'ctrl'`
+  - In `'auto'`/`'pan'` modes, the modifier is ignored for pinch/`Ctrl+wheel` zoom to avoid breaking native gestures.
+  - `Shift` is reserved for horizontal panning and therefore not available as a wheel modifier.
+
+  - **Zoom sensitivities**:
+    - `touchpadZoomSensitivityIn`, `touchpadZoomSensitivityOut` — for pixel-based touchpad pinch.
+    - `mouseZoomSensitivityIn`, `mouseZoomSensitivityOut` — for mouse `Ctrl+wheel` zoom.
+    - Defaults: if omitted, each sensitivity defaults to `0.0015`.
+
+  - **Pan multipliers**:
+    - `touchpadPanScale` — multiplier for two-finger touchpad pan speed. Defaults to `1`.
+    - `mousePanScale` — multiplier for mouse wheel pan speed (vertical) and `Shift+wheel` (horizontal). Defaults to `1`.
+
+### Example
+
+```tsx
+import { useCanvasNavigation } from '@flowscape-ui/canvas-react';
+import { useRef } from 'react';
+
+export default function Example() {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useCanvasNavigation(ref, {
+    panButton: 0,
+    panModifier: 'none',
+    wheelZoom: true,
+    wheelModifier: 'ctrl',
+    wheelBehavior: 'auto', // mouse: pan (Y / Shift->X), Ctrl+wheel: zoom; touchpad: two-finger pan + pinch zoom
+    touchpadZoomSensitivityIn: 0.0015,
+    touchpadZoomSensitivityOut: 0.0015,
+    mouseZoomSensitivityIn: 0.0015,
+    mouseZoomSensitivityOut: 0.0015,
+    // Faster mouse pan, slightly slower touchpad pan
+    mousePanScale: 1.5,
+    touchpadPanScale: 0.8,
+    doubleClickZoom: true,
+    doubleClickZoomFactor: 2,
+    doubleClickZoomOut: true,
+    doubleClickZoomOutModifier: 'alt',
+    doubleClickZoomOutFactor: 2,
+    keyboardPan: true,
+    keyboardPanStep: 50,
+    keyboardPanSlowStep: 25,
+  });
+
+  return <Canvas ref={ref} style={{ width: 800, height: 600 }} />;
+}
+```
+
+## World‑locked Backgrounds and dprSnap
+
+- __Purpose__: keep dotted/gridded backgrounds crisp on high‑DPR displays during pan/zoom by snapping background phase to device pixels.
+- __How__: only the offsets (backgroundPosition) are DPR‑snapped; the tile size (backgroundSize) stays continuous to avoid jumps while zooming. Implemented in `useWorldLockedTile()`.
+- __Defaults__:
+  - `BackgroundDots`/`BackgroundCells`: `dprSnap = true` (uses `window.devicePixelRatio` when available).
+  - `useWorldLockedTile`: off by default — pass `true` or a number to enable.
+- __When to use__: keep enabled for 1px lines/small dots to prevent blur and seams. Disable only if you need subpixel phase animation and can accept anti‑aliasing.
+- __SSR/tests__: pass a number (e.g. `2`) to force DPR when `window` is not available.
+
+Examples:
+
+```tsx
+// Dots: crisp by default
+<BackgroundDots size={24} />
+
+// Disable snapping (may blur on some zoom levels)
+<BackgroundDots size={24} dprSnap={false} />
+```
+
+```tsx
+// Cells: crisp 1px grid lines
+<BackgroundCells size={24} lineWidth={1} />
+
+// Force a fixed DPR (useful in tests/SSR)
+<BackgroundCells size={24} dprSnap={2} />
+```
+
+Direct hook usage:
+
+```tsx
+const { style } = useWorldLockedTile({ size: 32, dprSnap: true });
+return <div style={{ position: 'absolute', inset: 0, backgroundImage: '...', ...style }} />;
+```
+
 ### Drag & History Behavior
 
 - Dragging a node starts a coalesced history batch; intermediate updates are merged.
 - Undo/Redo reverts/applies the entire drag in one step.
 - Canvas panning is suppressed while dragging over nodes (hit-tested by `data-rc-nodeid`).
+
+#### Camera & History
+
+- Camera panning and zoom are transient UI state and are not recorded in history.
+- Undo/Redo do not change the camera if only camera moves occurred (no node changes).
+- When Undo/Redo re-adds or reveals nodes that are currently off-screen, the camera recenters to bring them into view. This happens at the same zoom level.
+- Default zoom bounds remain 0.6–2.4 (60–240%).
+
+Tip for demos/tests: Add a node, remove it, pan the camera away, then Undo — the view recenters on the restored node.
 
 ## Usage (very basic)
 

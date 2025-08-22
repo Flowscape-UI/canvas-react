@@ -152,37 +152,38 @@ describe('History: camera pan and coalescing', () => {
     } as Partial<CanvasStore>);
   });
 
-  it('records single camera pan in history and supports undo/redo', () => {
+  it('does not record single camera pan in history; undo/redo do not affect camera', () => {
     const s1 = useCanvasStore.getState();
     expect(s1.camera).toMatchObject({ offsetX: 0, offsetY: 0, zoom: 1 });
     useCanvasStore.getState().panBy(10, -5);
     let s2 = useCanvasStore.getState();
     expect(s2.camera).toMatchObject({ offsetX: 10, offsetY: -5 });
-    expect(s2.historyPast.length).toBe(1);
+    expect(s2.historyPast.length).toBe(0);
+    // undo should be a no-op for camera when there is no history
     s2.undo();
     s2 = useCanvasStore.getState();
-    expect(s2.camera).toMatchObject({ offsetX: 0, offsetY: 0 });
+    expect(s2.camera).toMatchObject({ offsetX: 10, offsetY: -5 });
+    // redo -> still nothing
     s2.redo();
     s2 = useCanvasStore.getState();
     expect(s2.camera).toMatchObject({ offsetX: 10, offsetY: -5 });
   });
 
-  it('coalesces multiple panBy calls into a single cameraMove within a batch', () => {
+  it('panBy inside a batch is not recorded; empty batch is discarded', () => {
     useCanvasStore.getState().beginHistory('camera-pan');
     useCanvasStore.getState().panBy(5, 0);
     useCanvasStore.getState().panBy(5, 0);
     useCanvasStore.getState().panBy(-2, 3);
     useCanvasStore.getState().endHistory();
     let s = useCanvasStore.getState();
-    expect(s.historyPast.length).toBe(1);
+    // No node changes in the batch -> batch discarded
+    expect(s.historyPast.length).toBe(0);
     expect(s.camera).toMatchObject({ offsetX: 8, offsetY: 3 });
-    // only one change inside the batch (coalesced cameraMove)
-    expect(s.historyPast[0].changes.length).toBe(1);
-    // undo -> back to origin
+    // undo still has nothing to do
     s.undo();
     s = useCanvasStore.getState();
-    expect(s.camera).toMatchObject({ offsetX: 0, offsetY: 0 });
-    // redo -> aggregated movement
+    expect(s.camera).toMatchObject({ offsetX: 8, offsetY: 3 });
+    // redo -> still nothing
     s.redo();
     s = useCanvasStore.getState();
     expect(s.camera).toMatchObject({ offsetX: 8, offsetY: 3 });
@@ -196,7 +197,7 @@ describe('History: camera pan and coalescing', () => {
   });
 });
 
-describe('History: mixed batch (cameraMove + moveSelectedBy)', () => {
+describe('History: mixed batch (pan + moveSelectedBy)', () => {
   beforeEach(() => {
     useCanvasStore.setState({
       camera: { zoom: 1, offsetX: 0, offsetY: 0 },
@@ -207,9 +208,14 @@ describe('History: mixed batch (cameraMove + moveSelectedBy)', () => {
       historyFuture: [],
       historyBatch: null,
     } as Partial<CanvasStore>);
+    // Provide a window shim to make visibility checks meaningful
+    ((globalThis as unknown) as { window?: { innerWidth: number; innerHeight: number } }).window = {
+      innerWidth: 800,
+      innerHeight: 600,
+    };
   });
 
-  it('coalesces camera moves and keeps per-node updates; undo/redo restores both camera and nodes', () => {
+  it('ignores camera moves in batch and keeps per-node updates; undo/redo restore only nodes', () => {
     // Arrange: two nodes selected
     useCanvasStore.getState().addNode({ id: 'mx1', x: 0, y: 0, width: 10, height: 10 });
     useCanvasStore.getState().addNode({ id: 'mx2', x: 5, y: 5, width: 10, height: 10 });
@@ -231,26 +237,50 @@ describe('History: mixed batch (cameraMove + moveSelectedBy)', () => {
     // Nodes moved by (3,4)
     expect(s.nodes['mx1']).toMatchObject({ x: 3, y: 4 });
     expect(s.nodes['mx2']).toMatchObject({ x: 8, y: 9 });
-    // Inside the batch: expect 1 cameraMove + 2 updates
+    // Inside the batch: expect only node updates (no camera changes recorded)
     const last = s.historyPast[2];
     const kinds = last.changes.map((c) => c.kind);
-    const cameraCount = kinds.filter((k) => k === 'cameraMove').length;
-    const updateCount = kinds.filter((k) => k === 'update').length;
-    expect(cameraCount).toBe(1);
-    expect(updateCount).toBe(2);
+    expect(kinds).toEqual(['update', 'update']);
 
-    // Undo -> camera back to (0,0), nodes back to initial
+    // Undo -> nodes back to initial, camera remains unchanged
     s.undo();
     s = useCanvasStore.getState();
-    expect(s.camera).toMatchObject({ offsetX: 0, offsetY: 0 });
+    expect(s.camera).toMatchObject({ offsetX: 8, offsetY: -4 });
     expect(s.nodes['mx1']).toMatchObject({ x: 0, y: 0 });
     expect(s.nodes['mx2']).toMatchObject({ x: 5, y: 5 });
 
-    // Redo -> camera (8,-4), nodes moved by (3,4) again
+    // Redo -> nodes moved by (3,4) again, camera unchanged
     s.redo();
     s = useCanvasStore.getState();
     expect(s.camera).toMatchObject({ offsetX: 8, offsetY: -4 });
     expect(s.nodes['mx1']).toMatchObject({ x: 3, y: 4 });
     expect(s.nodes['mx2']).toMatchObject({ x: 8, y: 9 });
+  });
+});
+
+describe('History: undo re-add centers camera when re-added nodes are off-screen', () => {
+  beforeEach(() => resetStore());
+
+  it('recenters viewport to re-added node bbox center on undo remove if currently off-screen', () => {
+    // Provide a minimal window shim in Node env so undo() centering uses screen size
+    ((globalThis as unknown) as { window?: { innerWidth: number; innerHeight: number } }).window = {
+      innerWidth: 800,
+      innerHeight: 600,
+    };
+
+    // Add a node near origin
+    useCanvasStore.getState().addNode({ id: 'c1', x: 0, y: 0, width: 100, height: 60 });
+    // Pan camera far away so the node is off-screen
+    useCanvasStore.getState().panBy(5000, 5000);
+    // Remove node and then undo -> should re-add and center camera
+    useCanvasStore.getState().removeNode('c1');
+    let s = useCanvasStore.getState();
+    expect(s.nodes['c1']).toBeUndefined();
+    s.undo();
+    s = useCanvasStore.getState();
+    expect(s.nodes['c1']).toBeDefined();
+    // With zoom=1 and window 800x600, center of node (50,30) -> offset should be -350,-270
+    expect(s.camera.offsetX).toBeCloseTo(-350, 6);
+    expect(s.camera.offsetY).toBeCloseTo(-270, 6);
   });
 });
