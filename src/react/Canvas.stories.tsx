@@ -2,10 +2,18 @@ import type { Meta, StoryObj } from '@storybook/react';
 import React, { useRef, useState } from 'react';
 import { Canvas } from './Canvas';
 import { BackgroundDots } from './BackgroundDots';
+import { BackgroundCells } from './BackgroundCells';
 import { NodeView } from './NodeView';
 import { useCanvasNavigation } from './useCanvasNavigation';
 import { cameraToCssTransform } from '../core/coords';
-import { useCamera, useNodeActions, useNodes, useDeleteActions } from '../state/store';
+import {
+  useCamera,
+  useNodeActions,
+  useNodes,
+  useDeleteActions,
+  useHistoryActions,
+  useCanvasActions,
+} from '../state/store';
 import { useCanvasHelpers } from './useCanvasHelpers';
 import type { CanvasNavigationOptions } from './useCanvasNavigation';
 import type { BackgroundDotsProps } from './BackgroundDots';
@@ -17,7 +25,13 @@ type CanvasStoryArgs = Required<
     | 'panModifier'
     | 'wheelZoom'
     | 'wheelModifier'
-    | 'wheelSensitivity'
+    | 'wheelBehavior'
+    | 'touchpadZoomSensitivityIn'
+    | 'touchpadZoomSensitivityOut'
+    | 'mouseZoomSensitivityIn'
+    | 'mouseZoomSensitivityOut'
+    | 'touchpadPanScale'
+    | 'mousePanScale'
     | 'doubleClickZoom'
     | 'doubleClickZoomFactor'
     | 'doubleClickZoomOut'
@@ -28,13 +42,18 @@ type CanvasStoryArgs = Required<
     | 'keyboardPanSlowStep'
   >
 > & {
+  bgVariant: 'dots' | 'cells';
   bgSize: NonNullable<BackgroundDotsProps['size']>;
   bgDotRadius: NonNullable<BackgroundDotsProps['dotRadius']>;
+  bgLineWidth: number;
   bgColorMinor: NonNullable<BackgroundDotsProps['colorMinor']>;
   bgBaseColor: NonNullable<BackgroundDotsProps['baseColor']>;
+  bgDprSnap: boolean;
   canvasWidth: string;
   canvasHeight: string;
   tabIndex: number;
+  // Story toggles
+  showHistoryPanel: boolean;
   // Node appearance controls
   nodeUnstyled: boolean;
   nodeBorderColor: string;
@@ -59,6 +78,11 @@ const meta: Meta<typeof Playground> = {
     layout: 'fullscreen',
   },
   argTypes: {
+    bgVariant: {
+      control: { type: 'radio' },
+      options: ['dots', 'cells'],
+      name: 'bg.variant',
+    },
     panButton: {
       control: { type: 'radio' },
       options: [0, 1, 2],
@@ -72,9 +96,38 @@ const meta: Meta<typeof Playground> = {
     wheelZoom: { control: 'boolean' },
     wheelModifier: {
       control: { type: 'select' },
-      options: ['none', 'shift', 'alt', 'ctrl'],
+      options: ['none', 'alt', 'ctrl'],
     },
-    wheelSensitivity: { control: { type: 'number', min: 0.0001, max: 0.01, step: 0.0001 } },
+    wheelBehavior: {
+      control: { type: 'select' },
+      options: ['auto', 'zoom', 'pan'],
+      description:
+        "'auto': mouse=pan (Y / Shift->X), Ctrl+wheel=zoom; touchpad: two-finger pan, pinch zoom. 'zoom': legacy zoom by wheel. 'pan': wheel always pans; zoom only with Ctrl.",
+    },
+    touchpadZoomSensitivityIn: {
+      control: { type: 'number', min: 0.0001, max: 0.01, step: 0.0001 },
+      description: 'Sensitivity for touchpad zoom-in (pixels-based deltas)',
+    },
+    touchpadZoomSensitivityOut: {
+      control: { type: 'number', min: 0.0001, max: 0.01, step: 0.0001 },
+      description: 'Sensitivity for touchpad zoom-out (pixels-based deltas)',
+    },
+    mouseZoomSensitivityIn: {
+      control: { type: 'number', min: 0.0001, max: 0.01, step: 0.0001 },
+      description: 'Sensitivity for mouse Ctrl+wheel zoom-in',
+    },
+    mouseZoomSensitivityOut: {
+      control: { type: 'number', min: 0.0001, max: 0.01, step: 0.0001 },
+      description: 'Sensitivity for mouse Ctrl+wheel zoom-out',
+    },
+    touchpadPanScale: {
+      control: { type: 'number', min: 0.25, max: 8, step: 0.25 },
+      description: 'Multiplier for two-finger touchpad pan speed',
+    },
+    mousePanScale: {
+      control: { type: 'number', min: 0.25, max: 8, step: 0.25 },
+      description: 'Multiplier for mouse wheel pan speed (Y, Shift->X)',
+    },
     doubleClickZoom: { control: 'boolean' },
     doubleClickZoomFactor: { control: { type: 'number', min: 1, max: 4, step: 0.25 } },
     doubleClickZoomOut: { control: 'boolean' },
@@ -89,8 +142,14 @@ const meta: Meta<typeof Playground> = {
 
     bgSize: { control: { type: 'number', min: 4, max: 64, step: 1 }, name: 'bg.size' },
     bgDotRadius: { control: { type: 'number', min: 0.5, max: 4, step: 0.1 }, name: 'bg.dotRadius' },
+    bgLineWidth: { control: { type: 'number', min: 0.5, max: 8, step: 0.5 }, name: 'bg.lineWidth' },
     bgColorMinor: { control: 'color', name: 'bg.colorMinor' },
     bgBaseColor: { control: 'color', name: 'bg.baseColor' },
+    bgDprSnap: {
+      control: 'boolean',
+      name: 'bg.dprSnap',
+      description: 'Snap background tiling to device pixels for crisp lines/dots',
+    },
 
     nodeUnstyled: { control: 'boolean', name: 'node.unstyled' },
     nodeBorderColor: { control: 'color', name: 'node.borderColor' },
@@ -118,13 +177,21 @@ const meta: Meta<typeof Playground> = {
     canvasWidth: { control: { type: 'text' } },
     canvasHeight: { control: { type: 'text' } },
     tabIndex: { control: { type: 'number', min: -1, max: 10, step: 1 } },
+    showHistoryPanel: { control: 'boolean' },
   },
   args: {
+    bgVariant: 'dots',
     panButton: 0,
     panModifier: 'none',
     wheelZoom: true,
     wheelModifier: 'ctrl',
-    wheelSensitivity: 0.0015,
+    wheelBehavior: 'auto',
+    touchpadZoomSensitivityIn: 0.0015,
+    touchpadZoomSensitivityOut: 0.0015,
+    mouseZoomSensitivityIn: 0.0015,
+    mouseZoomSensitivityOut: 0.0015,
+    touchpadPanScale: 1,
+    mousePanScale: 4,
     doubleClickZoom: true,
     doubleClickZoomFactor: 2,
     doubleClickZoomOut: true,
@@ -132,16 +199,19 @@ const meta: Meta<typeof Playground> = {
     doubleClickZoomOutFactor: 2,
     keyboardPan: true,
     keyboardPanStep: 50,
-    keyboardPanSlowStep: 10,
+    keyboardPanSlowStep: 25,
 
     bgSize: 24,
     bgDotRadius: 1.2,
+    bgLineWidth: 1,
     bgColorMinor: '#91919a',
     bgBaseColor: '#f7f9fb',
+    bgDprSnap: true,
 
     canvasWidth: '100vw',
     canvasHeight: '100vh',
     tabIndex: 0,
+    showHistoryPanel: false,
 
     // Node defaults (match NodeView defaultAppearance)
     nodeUnstyled: false,
@@ -204,13 +274,21 @@ function WorldLayer({ args }: { args: CanvasStoryArgs }) {
   );
 }
 
-function Controls({ rootRef }: { rootRef: React.RefObject<HTMLDivElement> }) {
+function Controls({
+  rootRef,
+  showHistoryControls,
+}: {
+  rootRef: React.RefObject<HTMLDivElement>;
+  showHistoryControls?: boolean;
+}) {
   const { updateNode, removeNode } = useNodeActions();
   const { deleteSelected } = useDeleteActions();
   const nodes = useNodes();
   const counterRef = useRef(1);
   const [targetId, setTargetId] = useState('');
   const { addNodeAtCenter } = useCanvasHelpers(rootRef);
+  const { undo, redo } = useHistoryActions();
+  const { panBy } = useCanvasActions();
 
   const add = () => {
     const id = `n${counterRef.current++}`;
@@ -257,6 +335,11 @@ function Controls({ rootRef }: { rootRef: React.RefObject<HTMLDivElement> }) {
     deleteSelected();
   };
 
+  const panAway = () => {
+    // Pan a large amount to move current nodes off-screen for demo
+    panBy(2000, 1500);
+  };
+
   return (
     <div
       style={{
@@ -299,6 +382,20 @@ function Controls({ rootRef }: { rootRef: React.RefObject<HTMLDivElement> }) {
         Delete Selected
       </button>
       <span style={{ color: '#555' }}>count: {nodes.length}</span>
+      {showHistoryControls ? (
+        <>
+          <span style={{ margin: '0 8px', color: '#999' }}>|</span>
+          <button type="button" onClick={undo}>
+            Undo
+          </button>
+          <button type="button" onClick={redo}>
+            Redo
+          </button>
+          <button type="button" onClick={panAway}>
+            Pan Away
+          </button>
+        </>
+      ) : null}
     </div>
   );
 }
@@ -310,7 +407,13 @@ function Playground(args: CanvasStoryArgs) {
     panModifier: args.panModifier,
     wheelZoom: args.wheelZoom,
     wheelModifier: args.wheelModifier,
-    wheelSensitivity: args.wheelSensitivity,
+    wheelBehavior: args.wheelBehavior,
+    touchpadZoomSensitivityIn: args.touchpadZoomSensitivityIn,
+    touchpadZoomSensitivityOut: args.touchpadZoomSensitivityOut,
+    mouseZoomSensitivityIn: args.mouseZoomSensitivityIn,
+    mouseZoomSensitivityOut: args.mouseZoomSensitivityOut,
+    touchpadPanScale: args.touchpadPanScale,
+    mousePanScale: args.mousePanScale,
     doubleClickZoom: args.doubleClickZoom,
     doubleClickZoomFactor: args.doubleClickZoomFactor,
     doubleClickZoomOut: args.doubleClickZoomOut,
@@ -334,12 +437,23 @@ function Playground(args: CanvasStoryArgs) {
         }}
         tabIndex={args.tabIndex}
         background={
-          <BackgroundDots
-            size={args.bgSize}
-            dotRadius={args.bgDotRadius}
-            colorMinor={args.bgColorMinor}
-            baseColor={args.bgBaseColor}
-          />
+          args.bgVariant === 'cells' ? (
+            <BackgroundCells
+              size={args.bgSize}
+              lineWidth={args.bgLineWidth}
+              colorMinor={args.bgColorMinor}
+              baseColor={args.bgBaseColor}
+              dprSnap={args.bgDprSnap}
+            />
+          ) : (
+            <BackgroundDots
+              size={args.bgSize}
+              dotRadius={args.bgDotRadius}
+              colorMinor={args.bgColorMinor}
+              baseColor={args.bgBaseColor}
+              dprSnap={args.bgDprSnap}
+            />
+          )
         }
       >
         <WorldLayer args={args} />
@@ -387,8 +501,50 @@ function Playground(args: CanvasStoryArgs) {
             <div>• Canvas auto-focuses on pointer interactions</div>
             <div>• To disable auto-focus, set Canvas tabIndex to -1 (see Controls)</div>
           </div>
+          <div
+            style={{
+              padding: 8,
+              background: 'rgba(255,255,255,0.9)',
+              border: '1px solid #ddd',
+              borderRadius: 6,
+              maxWidth: 420,
+              fontSize: 12,
+              color: '#333',
+              lineHeight: 1.4,
+            }}
+          >
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>Wheel & Zoom</div>
+            <div>• Auto mode: wheel pans vertically; Shift+wheel pans horizontally</div>
+            <div>• Ctrl+wheel zooms (mouse & touchpad pinch)</div>
+            <div>• Default zoom bounds: 60–240% (0.6–2.4)</div>
+          </div>
+          {args.showHistoryPanel ? (
+            <div
+              style={{
+                padding: 8,
+                background: 'rgba(255,255,255,0.9)',
+                border: '1px solid #ddd',
+                borderRadius: 6,
+                maxWidth: 420,
+                fontSize: 12,
+                color: '#333',
+                lineHeight: 1.4,
+              }}
+            >
+              <div style={{ fontWeight: 700, marginBottom: 4 }}>History & Camera</div>
+              <div>• Camera pans are not recorded in history</div>
+              <div>• Undo/Redo of camera-only changes are no-ops</div>
+              <div>
+                • When nodes are re-added by Undo/Redo and are off-screen, the camera recenters
+              </div>
+              <div>
+                • Try: add a node, remove it, Pan Away, then Undo — view recenters on the restored
+                node
+              </div>
+            </div>
+          ) : null}
         </div>
-        <Controls rootRef={ref} />
+        <Controls rootRef={ref} showHistoryControls={args.showHistoryPanel} />
       </div>
     </div>
   );
@@ -397,7 +553,20 @@ function Playground(args: CanvasStoryArgs) {
 export const Basic: Story = {
   args: {
     tabIndex: 10,
+    mouseZoomSensitivityIn: 0.03,
+    mouseZoomSensitivityOut: 0.03,
+    mousePanScale: 15,
+    touchpadZoomSensitivityIn: 0.01,
+    touchpadZoomSensitivityOut: 0.01,
   },
 
+  render: (args) => <Playground {...args} />,
+};
+
+export const HistoryAndCamera: Story = {
+  name: 'History & Camera',
+  args: {
+    showHistoryPanel: true,
+  },
   render: (args) => <Playground {...args} />,
 };

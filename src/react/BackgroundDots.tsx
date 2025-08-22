@@ -1,5 +1,5 @@
 import React from 'react';
-import { useCamera } from '../state/store';
+import { useWorldLockedTile } from './useWorldLockedTile';
 
 export type BackgroundDotsProps = {
   size?: number; // base grid step in world units (px)
@@ -7,13 +7,16 @@ export type BackgroundDotsProps = {
   colorMinor?: string;
   colorMajor?: string;
   baseColor?: string;
+  dprSnap?: boolean | number; // optionally snap tile offsets to device pixels
   majorEvery?: number; // emphasize each Nth row/column
   style?: React.CSSProperties;
 };
 
 /**
- * Viewport-filling dotted background that is locked to WORLD coordinates
- * (moves with pan, respects zoom via scaled cell size) but is NOT scaled itself.
+ * Viewport-filling dotted background locked to WORLD coordinates.
+ * - Moves with pan (phase depends on camera offsets).
+ * - Respects zoom by changing backgroundSize smoothly (no integer rounding).
+ * - Avoids jitter during zoom by computing phase from continuous values.
  * Place as a direct child of the canvas container (not inside the transformed world).
  */
 export function BackgroundDots({
@@ -21,20 +24,12 @@ export function BackgroundDots({
   dotRadius = 1.2,
   colorMinor = '#91919a',
   baseColor = '#f7f9fb',
+  dprSnap = true,
   style,
 }: BackgroundDotsProps) {
-  const camera = useCamera();
-
-  // Build dot layers
+  // Build dot layer and compute world-locked tiling
   const minor = `radial-gradient(${colorMinor} ${dotRadius}px, transparent ${dotRadius}px)`;
-  // Scale cell size by zoom and snap to integer px to prevent tiling seams.
-  const scaled = Math.max(1, Math.round(size * camera.zoom));
-  // Offsets snapped to integers to avoid half-pixel artifacts
-  const mod = (a: number, n: number) => ((a % n) + n) % n;
-  const baseOffX = -camera.offsetX * camera.zoom;
-  const baseOffY = -camera.offsetY * camera.zoom;
-  const offX = Math.round(mod(baseOffX, scaled));
-  const offY = Math.round(mod(baseOffY, scaled));
+  const { style: tileStyle } = useWorldLockedTile({ size, dprSnap });
 
   return (
     <div
@@ -46,10 +41,10 @@ export function BackgroundDots({
         zIndex: 0,
         backgroundColor: baseColor,
         backgroundImage: `${minor}`,
-        backgroundSize: `${scaled}px ${scaled}px`,
-        backgroundPosition: `${offX}px ${offY}px`,
+        ...tileStyle,
         ...style,
       }}
     />
   );
 }
+

@@ -3,12 +3,11 @@ import type { Camera, Point } from '../core/coords';
 import type { Node, NodeId } from '../types';
 import { applyPan, clampZoom, zoomAtPoint } from '../core/coords';
 
-// History types (nodes + camera pan; zoom is intentionally excluded)
+// History types (nodes only; camera and zoom are excluded)
 type NodeChange =
   | { kind: 'add'; node: Node }
   | { kind: 'remove'; node: Node }
-  | { kind: 'update'; id: NodeId; before: Node; after: Node }
-  | { kind: 'cameraMove'; dx: number; dy: number };
+  | { kind: 'update'; id: NodeId; before: Node; after: Node };
 
 type HistoryEntry = {
   label?: string;
@@ -33,8 +32,6 @@ export type CanvasState = {
     label?: string;
     changes: NodeChange[];
     updateIndexById: Record<NodeId, number>;
-    /** Index of coalesced cameraMove within changes, if any */
-    cameraMoveIndex?: number;
   } | null;
 };
 
@@ -96,35 +93,9 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
   setCamera: (camera) => set({ camera }),
 
   panBy: (dx, dy) =>
-    set((s) => {
-      const nextCamera = applyPan(s.camera, dx, dy);
-      if (__isReplayingHistory) return { camera: nextCamera } as Partial<CanvasStore> as CanvasStore;
-      if (s.historyBatch) {
-        const batch = s.historyBatch;
-        const idx = batch.cameraMoveIndex;
-        if (idx == null) {
-          const newChanges = [...batch.changes, { kind: 'cameraMove', dx, dy } as NodeChange];
-          return {
-            camera: nextCamera,
-            historyBatch: { ...batch, changes: newChanges, cameraMoveIndex: newChanges.length - 1 },
-          } as Partial<CanvasStore> as CanvasStore;
-        } else {
-          const newChanges = batch.changes.slice();
-          const prev = newChanges[idx] as Extract<NodeChange, { kind: 'cameraMove' }>;
-          newChanges[idx] = { kind: 'cameraMove', dx: prev.dx + dx, dy: prev.dy + dy };
-          return {
-            camera: nextCamera,
-            historyBatch: { ...batch, changes: newChanges },
-          } as Partial<CanvasStore> as CanvasStore;
-        }
-      }
-      const entry: HistoryEntry = { changes: [{ kind: 'cameraMove', dx, dy }] };
-      return {
-        camera: nextCamera,
-        historyPast: [...s.historyPast, entry],
-        historyFuture: [],
-      } as Partial<CanvasStore> as CanvasStore;
-    }),
+    set((s) => ({
+      camera: applyPan(s.camera, dx, dy),
+    })),
 
   zoomTo: (zoom) =>
     set((s) => ({
@@ -205,17 +176,33 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
         const idx = batch.updateIndexById[id];
         if (idx == null) {
           const newIdx = batch.changes.length;
-          const newChanges = [...batch.changes, { kind: 'update', id, before: current, after: updated } as NodeChange];
+          const newChanges = [
+            ...batch.changes,
+            { kind: 'update', id, before: current, after: updated } as NodeChange,
+          ];
           const newMap = { ...batch.updateIndexById, [id]: newIdx } as Record<NodeId, number>;
-          return { nodes: nextNodes, historyBatch: { ...batch, changes: newChanges, updateIndexById: newMap } } as Partial<CanvasStore> as CanvasStore;
+          return {
+            nodes: nextNodes,
+            historyBatch: { ...batch, changes: newChanges, updateIndexById: newMap },
+          } as Partial<CanvasStore> as CanvasStore;
         } else {
           const newChanges = batch.changes.slice();
           const prev = newChanges[idx] as Extract<NodeChange, { kind: 'update' }>;
-          newChanges[idx] = { kind: 'update', id, before: prev.kind === 'update' ? prev.before : current, after: updated } as NodeChange;
-          return { nodes: nextNodes, historyBatch: { ...batch, changes: newChanges } } as Partial<CanvasStore> as CanvasStore;
+          newChanges[idx] = {
+            kind: 'update',
+            id,
+            before: prev.kind === 'update' ? prev.before : current,
+            after: updated,
+          } as NodeChange;
+          return {
+            nodes: nextNodes,
+            historyBatch: { ...batch, changes: newChanges },
+          } as Partial<CanvasStore> as CanvasStore;
         }
       }
-      const entry: HistoryEntry = { changes: [{ kind: 'update', id, before: current, after: updated }] };
+      const entry: HistoryEntry = {
+        changes: [{ kind: 'update', id, before: current, after: updated }],
+      };
       return {
         nodes: nextNodes,
         historyPast: [...s.historyPast, entry],
@@ -238,7 +225,10 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
             return {
               nodes: next,
               selected: sel,
-              historyBatch: { ...batch, changes: [...batch.changes, { kind: 'remove', node: removed }] },
+              historyBatch: {
+                ...batch,
+                changes: [...batch.changes, { kind: 'remove', node: removed }],
+              },
             } as Partial<CanvasStore> as CanvasStore;
           }
           const entry: HistoryEntry = { changes: [{ kind: 'remove', node: removed }] };
@@ -254,10 +244,20 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
       if (!__isReplayingHistory) {
         if (s.historyBatch) {
           const batch = s.historyBatch;
-          return { nodes: next, historyBatch: { ...batch, changes: [...batch.changes, { kind: 'remove', node: removed }] } } as Partial<CanvasStore> as CanvasStore;
+          return {
+            nodes: next,
+            historyBatch: {
+              ...batch,
+              changes: [...batch.changes, { kind: 'remove', node: removed }],
+            },
+          } as Partial<CanvasStore> as CanvasStore;
         }
         const entry: HistoryEntry = { changes: [{ kind: 'remove', node: removed }] };
-        return { nodes: next, historyPast: [...s.historyPast, entry], historyFuture: [] } as Partial<CanvasStore> as CanvasStore;
+        return {
+          nodes: next,
+          historyPast: [...s.historyPast, entry],
+          historyFuture: [],
+        } as Partial<CanvasStore> as CanvasStore;
       }
       return { nodes: next } as Partial<CanvasStore> as CanvasStore;
     }),
@@ -291,16 +291,31 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
       }
       if (s.historyBatch) {
         const batch = s.historyBatch;
-        const removeChanges = removedList.map((n) => ({ kind: 'remove', node: n } as NodeChange));
+        const removeChanges = removedList.map((n) => ({ kind: 'remove', node: n }) as NodeChange);
         const newBatch = { ...batch, changes: [...batch.changes, ...removeChanges] };
         return selChanged
-          ? ({ nodes: nextNodes, selected: nextSel, historyBatch: newBatch } as Partial<CanvasStore> as CanvasStore)
+          ? ({
+              nodes: nextNodes,
+              selected: nextSel,
+              historyBatch: newBatch,
+            } as Partial<CanvasStore> as CanvasStore)
           : ({ nodes: nextNodes, historyBatch: newBatch } as Partial<CanvasStore> as CanvasStore);
       }
-      const entry: HistoryEntry = { changes: removedList.map((n) => ({ kind: 'remove', node: n })) };
+      const entry: HistoryEntry = {
+        changes: removedList.map((n) => ({ kind: 'remove', node: n })),
+      };
       return selChanged
-        ? ({ nodes: nextNodes, selected: nextSel, historyPast: [...s.historyPast, entry], historyFuture: [] } as Partial<CanvasStore> as CanvasStore)
-        : ({ nodes: nextNodes, historyPast: [...s.historyPast, entry], historyFuture: [] } as Partial<CanvasStore> as CanvasStore);
+        ? ({
+            nodes: nextNodes,
+            selected: nextSel,
+            historyPast: [...s.historyPast, entry],
+            historyFuture: [],
+          } as Partial<CanvasStore> as CanvasStore)
+        : ({
+            nodes: nextNodes,
+            historyPast: [...s.historyPast, entry],
+            historyFuture: [],
+          } as Partial<CanvasStore> as CanvasStore);
     }),
   moveSelectedBy: (dx, dy) =>
     set((s) => {
@@ -336,10 +351,24 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
             newChanges[idx] = { kind: 'update', id: u.id, before: prev.before, after: u.after };
           }
         }
-        return { nodes: nextNodes, historyBatch: { ...batch, changes: newChanges, updateIndexById: newMap } } as Partial<CanvasStore> as CanvasStore;
+        return {
+          nodes: nextNodes,
+          historyBatch: { ...batch, changes: newChanges, updateIndexById: newMap },
+        } as Partial<CanvasStore> as CanvasStore;
       }
-      const entry: HistoryEntry = { changes: updates.map((u) => ({ kind: 'update', id: u.id, before: u.before, after: u.after })) };
-      return { nodes: nextNodes, historyPast: [...s.historyPast, entry], historyFuture: [] } as Partial<CanvasStore> as CanvasStore;
+      const entry: HistoryEntry = {
+        changes: updates.map((u) => ({
+          kind: 'update',
+          id: u.id,
+          before: u.before,
+          after: u.after,
+        })),
+      };
+      return {
+        nodes: nextNodes,
+        historyPast: [...s.historyPast, entry],
+        historyFuture: [],
+      } as Partial<CanvasStore> as CanvasStore;
     }),
 
   // Selection
@@ -380,7 +409,7 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
     set((s) => {
       if (s.historyBatch) return {} as Partial<CanvasStore> as CanvasStore;
       return {
-        historyBatch: { label, changes: [], updateIndexById: {}, cameraMoveIndex: undefined },
+        historyBatch: { label, changes: [], updateIndexById: {} },
       } as Partial<CanvasStore> as CanvasStore;
     }),
   endHistory: () =>
@@ -399,7 +428,8 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
     }),
   undo: () =>
     set((s) => {
-      if (s.historyBatch || s.historyPast.length === 0) return {} as Partial<CanvasStore> as CanvasStore;
+      if (s.historyBatch || s.historyPast.length === 0)
+        return {} as Partial<CanvasStore> as CanvasStore;
       const past = s.historyPast.slice();
       const entry = past.pop() as HistoryEntry;
       const future = s.historyFuture.slice();
@@ -407,9 +437,62 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
       // Apply inverse of entry
       __isReplayingHistory = true;
       try {
-        // Build new nodes map and camera by applying inverse of changes
-        const nodes = { ...s.nodes } as Record<NodeId, Node>;
+        // Determine reference bbox for visibility check BEFORE applying inverse
+        let bboxLeft = Infinity,
+          bboxTop = Infinity,
+          bboxRight = -Infinity,
+          bboxBottom = -Infinity;
+        let hasRef = false;
+        for (const ch of entry.changes) {
+          if (ch.kind === 'add') {
+            // Node will be removed on undo; use its geometry as reference
+            const n = ch.node;
+            bboxLeft = Math.min(bboxLeft, n.x);
+            bboxTop = Math.min(bboxTop, n.y);
+            bboxRight = Math.max(bboxRight, n.x + n.width);
+            bboxBottom = Math.max(bboxBottom, n.y + n.height);
+            hasRef = true;
+          } else if (ch.kind === 'remove') {
+            // Node will be re-added; use its geometry
+            const n = ch.node;
+            bboxLeft = Math.min(bboxLeft, n.x);
+            bboxTop = Math.min(bboxTop, n.y);
+            bboxRight = Math.max(bboxRight, n.x + n.width);
+            bboxBottom = Math.max(bboxBottom, n.y + n.height);
+            hasRef = true;
+          } else if (ch.kind === 'update') {
+            // Undo returns to 'before'
+            const n = ch.before;
+            bboxLeft = Math.min(bboxLeft, n.x);
+            bboxTop = Math.min(bboxTop, n.y);
+            bboxRight = Math.max(bboxRight, n.x + n.width);
+            bboxBottom = Math.max(bboxBottom, n.y + n.height);
+            hasRef = true;
+          }
+        }
+        // Check visibility in current camera
         let cam = s.camera;
+        if (hasRef) {
+          const w = typeof window !== 'undefined' ? window.innerWidth : 0;
+          const h = typeof window !== 'undefined' ? window.innerHeight : 0;
+          const zoom = cam.zoom || 1;
+          const viewLeft = cam.offsetX;
+          const viewTop = cam.offsetY;
+          const viewRight = viewLeft + w / zoom;
+          const viewBottom = viewTop + h / zoom;
+          const isOutside =
+            bboxRight < viewLeft ||
+            bboxLeft > viewRight ||
+            bboxBottom < viewTop ||
+            bboxTop > viewBottom;
+          if (isOutside) {
+            const cx = (bboxLeft + bboxRight) / 2;
+            const cy = (bboxTop + bboxBottom) / 2;
+            cam = { zoom: cam.zoom, offsetX: cx - w / (2 * zoom), offsetY: cy - h / (2 * zoom) };
+          }
+        }
+        // Build new nodes map by applying inverse of changes
+        const nodes = { ...s.nodes } as Record<NodeId, Node>;
         for (let i = entry.changes.length - 1; i >= 0; i--) {
           const ch = entry.changes[i];
           if (ch.kind === 'add') {
@@ -418,8 +501,6 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
             nodes[ch.node.id] = ch.node;
           } else if (ch.kind === 'update') {
             nodes[ch.id] = ch.before;
-          } else if (ch.kind === 'cameraMove') {
-            cam = applyPan(cam, -ch.dx, -ch.dy);
           }
         }
         // Clean selection of non-existing ids
@@ -440,15 +521,66 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
     }),
   redo: () =>
     set((s) => {
-      if (s.historyBatch || s.historyFuture.length === 0) return {} as Partial<CanvasStore> as CanvasStore;
+      if (s.historyBatch || s.historyFuture.length === 0)
+        return {} as Partial<CanvasStore> as CanvasStore;
       const future = s.historyFuture.slice();
       const entry = future.shift() as HistoryEntry;
       const past = s.historyPast.slice();
       past.push(entry);
       __isReplayingHistory = true;
       try {
-        const nodes = { ...s.nodes } as Record<NodeId, Node>;
+        // Determine reference bbox BEFORE applying redo
+        let bboxLeft = Infinity,
+          bboxTop = Infinity,
+          bboxRight = -Infinity,
+          bboxBottom = -Infinity;
+        let hasRef = false;
+        for (const ch of entry.changes) {
+          if (ch.kind === 'add') {
+            const n = ch.node; // will appear after redo
+            bboxLeft = Math.min(bboxLeft, n.x);
+            bboxTop = Math.min(bboxTop, n.y);
+            bboxRight = Math.max(bboxRight, n.x + n.width);
+            bboxBottom = Math.max(bboxBottom, n.y + n.height);
+            hasRef = true;
+          } else if (ch.kind === 'remove') {
+            const n = ch.node; // will disappear after redo; still use its geometry
+            bboxLeft = Math.min(bboxLeft, n.x);
+            bboxTop = Math.min(bboxTop, n.y);
+            bboxRight = Math.max(bboxRight, n.x + n.width);
+            bboxBottom = Math.max(bboxBottom, n.y + n.height);
+            hasRef = true;
+          } else if (ch.kind === 'update') {
+            const n = ch.after; // redo applies 'after'
+            bboxLeft = Math.min(bboxLeft, n.x);
+            bboxTop = Math.min(bboxTop, n.y);
+            bboxRight = Math.max(bboxRight, n.x + n.width);
+            bboxBottom = Math.max(bboxBottom, n.y + n.height);
+            hasRef = true;
+          }
+        }
         let cam = s.camera;
+        if (hasRef) {
+          const w = typeof window !== 'undefined' ? window.innerWidth : 0;
+          const h = typeof window !== 'undefined' ? window.innerHeight : 0;
+          const zoom = cam.zoom || 1;
+          const viewLeft = cam.offsetX;
+          const viewTop = cam.offsetY;
+          const viewRight = viewLeft + w / zoom;
+          const viewBottom = viewTop + h / zoom;
+          const isOutside =
+            bboxRight < viewLeft ||
+            bboxLeft > viewRight ||
+            bboxBottom < viewTop ||
+            bboxTop > viewBottom;
+          if (isOutside) {
+            const cx = (bboxLeft + bboxRight) / 2;
+            const cy = (bboxTop + bboxBottom) / 2;
+            cam = { zoom: cam.zoom, offsetX: cx - w / (2 * zoom), offsetY: cy - h / (2 * zoom) };
+          }
+        }
+        // Apply changes
+        const nodes = { ...s.nodes } as Record<NodeId, Node>;
         for (const ch of entry.changes) {
           if (ch.kind === 'add') {
             nodes[ch.node.id] = ch.node;
@@ -456,8 +588,6 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
             delete nodes[ch.node.id];
           } else if (ch.kind === 'update') {
             nodes[ch.id] = ch.after;
-          } else if (ch.kind === 'cameraMove') {
-            cam = applyPan(cam, ch.dx, ch.dy);
           }
         }
         const nextSel: Record<NodeId, true> = {};
@@ -553,7 +683,10 @@ export function useDndActions(): Pick<CanvasActions, 'moveSelectedBy'> {
 }
 
 // History actions
-export function useHistoryActions(): Pick<CanvasActions, 'beginHistory' | 'endHistory' | 'undo' | 'redo'> {
+export function useHistoryActions(): Pick<
+  CanvasActions,
+  'beginHistory' | 'endHistory' | 'undo' | 'redo'
+> {
   return useCanvasStore((s) => ({
     beginHistory: s.beginHistory,
     endHistory: s.endHistory,

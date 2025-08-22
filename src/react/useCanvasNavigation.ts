@@ -7,7 +7,6 @@ export type CanvasNavigationOptions = {
   panModifier?: 'none' | 'shift' | 'alt' | 'ctrl';
   wheelZoom?: boolean;
   wheelModifier?: 'none' | 'shift' | 'alt' | 'ctrl'; // убрать отсюда shift
-  wheelSensitivity?: number; // higher = faster zoom
   doubleClickZoom?: boolean; // zoom-in on double left click
   doubleClickZoomFactor?: number; // factor per double click (e.g., 2)
   doubleClickZoomOut?: boolean; // enable zoom-out gesture on double click with modifier
@@ -16,6 +15,18 @@ export type CanvasNavigationOptions = {
   keyboardPan?: boolean /** Enable keyboard panning with arrows/WASD */;
   keyboardPanStep?: number /** Base step in screen pixels per key press */;
   keyboardPanSlowStep?: number /** Slow step in screen pixels when holding Shift */;
+  /** Overall wheel behavior policy. 'auto' enables modern UX: mouse pan (Y/Shift->X), Ctrl+wheel zoom, touchpad pan and pinch zoom. 'zoom' preserves legacy behavior where wheel zooms by default. 'pan' forces wheel to pan, zoom only with Ctrl+wheel/pinch. */
+  wheelBehavior?: 'auto' | 'zoom' | 'pan';
+  /** Touchpad-only zoom sensitivities (pixels-based deltas). If omitted, defaults to 0.0015. */
+  touchpadZoomSensitivityIn?: number;
+  touchpadZoomSensitivityOut?: number;
+  /** Mouse Ctrl+wheel zoom sensitivities. If omitted, defaults to 0.0015. */
+  mouseZoomSensitivityIn?: number;
+  mouseZoomSensitivityOut?: number;
+  /** Scale multiplier for touchpad two-finger wheel panning (screen-space deltas). Default: 1 */
+  touchpadPanScale?: number;
+  /** Scale multiplier for mouse wheel panning (screen-space deltas, incl. Shift+wheel horizontal). Default: 1 */
+  mousePanScale?: number;
 };
 
 const defaultOptions: Required<CanvasNavigationOptions> = {
@@ -23,7 +34,6 @@ const defaultOptions: Required<CanvasNavigationOptions> = {
   panModifier: 'none',
   wheelZoom: true,
   wheelModifier: 'none',
-  wheelSensitivity: 0.0015,
   doubleClickZoom: true,
   doubleClickZoomFactor: 2,
   doubleClickZoomOut: true,
@@ -32,6 +42,13 @@ const defaultOptions: Required<CanvasNavigationOptions> = {
   keyboardPan: true,
   keyboardPanStep: 50,
   keyboardPanSlowStep: 25,
+  wheelBehavior: 'auto',
+  touchpadZoomSensitivityIn: 0.0015,
+  touchpadZoomSensitivityOut: 0.0015,
+  mouseZoomSensitivityIn: 0.0015,
+  mouseZoomSensitivityOut: 0.0015,
+  touchpadPanScale: 1,
+  mousePanScale: 1,
 };
 
 function hasSetPointerCapture(
@@ -176,20 +193,92 @@ export function useCanvasNavigation(
     }
 
     function onWheel(e: WheelEvent) {
-      if (!opts.wheelZoom) return;
-      if (!wheelModifierPressed(e)) return;
-      // Allow trackpad zoom on Mac with ctrl+wheel; also regular wheel
-      e.preventDefault();
       const currentEl = ref.current;
       if (!currentEl) return;
+
       const rect = currentEl.getBoundingClientRect();
       const screenPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
 
-      const sensitivity = opts.wheelSensitivity;
-      const factor = Math.exp(-e.deltaY * sensitivity);
+      // Heuristic detection
+      const isPinchZoom = e.ctrlKey === true; // treat Ctrl+wheel as pinch/zoom for both mouse and touchpad
+      const isPixelDelta = e.deltaMode === 0;
+      // Previous implementation gated touchpad by magnitude (<50), which could flip classification
+      // when a trackpad emitted larger deltas, causing apparent direction reversals. Stabilize by
+      // classifying any pixel-delta wheel (without Ctrl) as touchpad scroll.
+      const isLikelyTouchpadScroll = !isPinchZoom && isPixelDelta;
 
-      const { zoomByAt } = useCanvasStore.getState();
-      zoomByAt(screenPoint, factor);
+      // Helper: perform zoom using appropriate sensitivity
+      const doZoom = (device: 'touchpad' | 'mouse') => {
+        if (!opts.wheelZoom) return;
+        // In auto/pan modes, ignore wheelModifier for pinch/ctrl zoom to avoid breaking gestures.
+        if (opts.wheelBehavior === 'zoom') {
+          // Honor wheelModifier only in legacy zoom mode
+          if (!wheelModifierPressed(e)) return;
+        }
+        e.preventDefault();
+        const sensIn =
+          device === 'touchpad' ? opts.touchpadZoomSensitivityIn : opts.mouseZoomSensitivityIn;
+        const sensOut =
+          device === 'touchpad' ? opts.touchpadZoomSensitivityOut : opts.mouseZoomSensitivityOut;
+        const sensitivity = e.deltaY < 0 ? sensIn : sensOut;
+        const factor = Math.exp(-e.deltaY * sensitivity);
+        const { zoomByAt } = useCanvasStore.getState();
+        zoomByAt(screenPoint, factor);
+      };
+
+      // Helper: pan by deltas in screen space converted to world space
+      const doPan = (dxScreen: number, dyScreen: number) => {
+        const { camera, panBy } = useCanvasStore.getState();
+        const invZoom = 1 / camera.zoom;
+        const dxWorld = dxScreen * invZoom;
+        const dyWorld = dyScreen * invZoom;
+        if (dxWorld !== 0 || dyWorld !== 0) panBy(dxWorld, dyWorld);
+      };
+
+      const behavior = opts.wheelBehavior;
+
+      // 1) Zoom if Ctrl (pinch/intentional zoom) regardless of device
+      if (isPinchZoom) {
+        doZoom(isPixelDelta ? 'touchpad' : 'mouse');
+        return;
+      }
+
+      // 2) Behavior selection
+      if (behavior === 'zoom') {
+        // Legacy: wheel = zoom by default
+        if (!opts.wheelZoom) return;
+        if (!wheelModifierPressed(e)) return;
+        // Use device-specific sensitivities (same as pinch/Ctrl+wheel):
+        // pixel delta -> touchpad; otherwise -> mouse
+        doZoom(isPixelDelta ? 'touchpad' : 'mouse');
+        return;
+      }
+
+      if (behavior === 'pan') {
+        // Always pan with wheel (zoom only with Ctrl handled above)
+        e.preventDefault();
+        if (isLikelyTouchpadScroll) {
+          doPan(e.deltaX * opts.touchpadPanScale, e.deltaY * opts.touchpadPanScale);
+        } else {
+          // Mouse: Shift => horizontal, else vertical
+          if (e.shiftKey) doPan(-e.deltaY * opts.mousePanScale, 0);
+          else doPan(0, -e.deltaY * opts.mousePanScale);
+        }
+        return;
+      }
+
+      // behavior === 'auto'
+      if (isLikelyTouchpadScroll) {
+        // Touchpad: natural two-finger scroll pans in both axes
+        e.preventDefault();
+        doPan(e.deltaX * opts.touchpadPanScale, e.deltaY * opts.touchpadPanScale);
+        return;
+      }
+
+      // Mouse: pan vertically by default, Shift => horizontal pan
+      e.preventDefault();
+      if (e.shiftKey) doPan(-e.deltaY * opts.mousePanScale, 0);
+      else doPan(0, -e.deltaY * opts.mousePanScale);
     }
 
     function onDblClick(e: MouseEvent) {
@@ -328,7 +417,11 @@ export function useCanvasNavigation(
     opts.panModifier,
     opts.wheelZoom,
     opts.wheelModifier,
-    opts.wheelSensitivity,
+    opts.wheelBehavior,
+    opts.touchpadZoomSensitivityIn,
+    opts.touchpadZoomSensitivityOut,
+    opts.mouseZoomSensitivityIn,
+    opts.mouseZoomSensitivityOut,
     opts.doubleClickZoom,
     opts.doubleClickZoomFactor,
     opts.doubleClickZoomOut,
@@ -337,5 +430,7 @@ export function useCanvasNavigation(
     opts.keyboardPan,
     opts.keyboardPanStep,
     opts.keyboardPanSlowStep,
+    opts.touchpadPanScale,
+    opts.mousePanScale,
   ]);
 }
