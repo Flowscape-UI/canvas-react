@@ -513,60 +513,30 @@ function Playground(args: CanvasStoryArgs) {
             zIndex: 10,
           }}
         >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'flex-end',
-            flexDirection: 'column',
-            gap: 6,
-            marginBottom: 8,
-          }}
-        >
           <div
             style={{
-              padding: 6,
-              background: 'rgba(255,255,255,0.95)',
-              border: '1px solid #ddd',
-              borderRadius: 4,
-              fontSize: 11,
-              color: '#333',
-              lineHeight: 1.3,
-              maxWidth: 320,
+              display: 'flex',
+              alignItems: 'flex-end',
+              flexDirection: 'column',
+              gap: 6,
+              marginBottom: 8,
             }}
           >
-            <div style={{ fontWeight: 700, marginBottom: 3 }}>Selection</div>
-            <div>• Click: select • Ctrl+Click: toggle • Drag empty: box-select</div>
-          </div>
-          <div
-            style={{
-              padding: 6,
-              background: 'rgba(255,255,255,0.95)',
-              border: '1px solid #ddd',
-              borderRadius: 4,
-              fontSize: 11,
-              color: '#333',
-              lineHeight: 1.3,
-            }}
-          >
-            <div style={{ fontWeight: 700, marginBottom: 3 }}>Navigation</div>
-            <div>• Wheel: pan • Shift+Wheel: pan horizontal • Ctrl+Wheel: zoom</div>
-          </div>
-          <div
-            style={{
-              padding: 6,
-              background: 'rgba(255,255,255,0.95)',
-              border: '1px solid #ddd',
-              borderRadius: 4,
-              fontSize: 11,
-              color: '#333',
-              lineHeight: 1.3,
-            }}
-          >
-            <div style={{ fontWeight: 700, marginBottom: 3 }}>Grouping</div>
-            <div>• Press Ctrl/Cmd+G to group selected nodes</div>
-            <div>• Dashed rectangles show groups with invisible hit areas for drag/drop</div>
-          </div>
-          {args.showHistoryPanel ? (
+            <div
+              style={{
+                padding: 6,
+                background: 'rgba(255,255,255,0.95)',
+                border: '1px solid #ddd',
+                borderRadius: 4,
+                fontSize: 11,
+                color: '#333',
+                lineHeight: 1.3,
+                maxWidth: 320,
+              }}
+            >
+              <div style={{ fontWeight: 700, marginBottom: 3 }}>Selection</div>
+              <div>• Click: select • Ctrl+Click: toggle • Drag empty: box-select</div>
+            </div>
             <div
               style={{
                 padding: 6,
@@ -578,12 +548,42 @@ function Playground(args: CanvasStoryArgs) {
                 lineHeight: 1.3,
               }}
             >
-              <div style={{ fontWeight: 700, marginBottom: 3 }}>History</div>
-              <div>• Camera pans not recorded • Undo/Redo recenters off-screen nodes</div>
+              <div style={{ fontWeight: 700, marginBottom: 3 }}>Navigation</div>
+              <div>• Wheel: pan • Shift+Wheel: pan horizontal • Ctrl+Wheel: zoom</div>
             </div>
-          ) : null}
-        </div>
-        <Controls rootRef={ref} showHistoryControls={args.showHistoryPanel} />
+            <div
+              style={{
+                padding: 6,
+                background: 'rgba(255,255,255,0.95)',
+                border: '1px solid #ddd',
+                borderRadius: 4,
+                fontSize: 11,
+                color: '#333',
+                lineHeight: 1.3,
+              }}
+            >
+              <div style={{ fontWeight: 700, marginBottom: 3 }}>Grouping</div>
+              <div>• Press Ctrl/Cmd+G to group selected nodes</div>
+              <div>• Dashed rectangles show groups with invisible hit areas for drag/drop</div>
+            </div>
+            {args.showHistoryPanel ? (
+              <div
+                style={{
+                  padding: 6,
+                  background: 'rgba(255,255,255,0.95)',
+                  border: '1px solid #ddd',
+                  borderRadius: 4,
+                  fontSize: 11,
+                  color: '#333',
+                  lineHeight: 1.3,
+                }}
+              >
+                <div style={{ fontWeight: 700, marginBottom: 3 }}>History</div>
+                <div>• Camera pans not recorded • Undo/Redo recenters off-screen nodes</div>
+              </div>
+            ) : null}
+          </div>
+          <Controls rootRef={ref} showHistoryControls={args.showHistoryPanel} />
         </div>
       )}
     </div>

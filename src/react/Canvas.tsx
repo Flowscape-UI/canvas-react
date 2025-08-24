@@ -1,4 +1,4 @@
-import React, { forwardRef, useRef, useState } from 'react';
+import React, { forwardRef, useEffect, useRef, useState } from 'react';
 import {
   useSelectionActions,
   useHistoryActions,
@@ -71,6 +71,48 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
         // ignore
       }
       autoPanRafRef.current = null;
+    }
+  };
+
+  // Global Ctrl/Cmd+G so grouping works even if Canvas isn't focused
+  useEffect(() => {
+    function isTextInput(element: Element | null): boolean {
+      if (!element || !(element instanceof HTMLElement)) return false;
+      const tag = element.tagName.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+      if (element.isContentEditable) return true;
+      return false;
+    }
+    const onWindowKeyDown = (e: KeyboardEvent) => {
+      if (isTextInput(e.target as Element)) return;
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+        const keyLower = e.key.toLowerCase();
+        if (keyLower === 'g') {
+          const { selected, createVisualGroupFromSelection } = useCanvasStore.getState();
+          if (Object.keys(selected).length >= 2) {
+            e.preventDefault();
+            createVisualGroupFromSelection();
+          }
+        }
+      }
+    };
+    window.addEventListener('keydown', onWindowKeyDown);
+    return () => window.removeEventListener('keydown', onWindowKeyDown);
+  }, []);
+
+  // Capture-phase focus: ensure the canvas gets focus even when child components
+  // stop propagation of pointer events (e.g., NodeView). This guarantees our
+  // onKeyDown will receive keyboard shortcuts after any click inside the canvas.
+  const onPointerDownCapture: React.PointerEventHandler<HTMLDivElement> = (e) => {
+    const root = e.currentTarget as HTMLElement;
+    const tabindexAttr = root.getAttribute('tabindex');
+    const isFocusDisabled = tabindexAttr === '-1';
+    if (!isFocusDisabled && typeof root.focus === 'function') {
+      try {
+        root.focus({ preventScroll: true } as FocusOptions);
+      } catch {
+        // ignore
+      }
     }
   };
 
@@ -348,6 +390,19 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       if (e.shiftKey) redo();
       else undo();
     }
+
+    // Grouping: Ctrl/Cmd + G (works even if useCanvasNavigation hook isn't attached)
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+      const keyLower = e.key.toLowerCase();
+      if (keyLower === 'g') {
+        const { selected, createVisualGroupFromSelection } = useCanvasStore.getState();
+        if (Object.keys(selected).length >= 2) {
+          e.preventDefault();
+          createVisualGroupFromSelection();
+          return;
+        }
+      }
+    }
   };
 
   // Подготовим оверлей прямоугольника
@@ -398,6 +453,7 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       }}
       tabIndex={tabIndex}
       data-rc-canvas
+      onPointerDownCapture={onPointerDownCapture}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}

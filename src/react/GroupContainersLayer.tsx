@@ -44,6 +44,9 @@ export function GroupContainersLayer() {
 
   // Visual groups from store (purely visual, independent of parentId)
   const visualGroups = useCanvasStore((s) => s.visualGroups);
+  const selectedGroupId = useCanvasStore((s) => s.selectedVisualGroupId);
+  const hoveredGlobalGroupId = useCanvasStore((s) => s.hoveredVisualGroupId);
+  const hoveredGlobalGroupIdSecondary = useCanvasStore((s) => s.hoveredVisualGroupIdSecondary);
 
   // Compute bbox for each visual group based on member nodes
   const containers = useMemo(() => {
@@ -292,6 +295,8 @@ export function GroupContainersLayer() {
       // Always clear hover on finish so the stroke hides after drop
       try {
         setHoveredGroupId(null);
+        const { setHoveredVisualGroupId } = useCanvasStore.getState();
+        setHoveredVisualGroupId(null);
       } catch {
         // ignore
       }
@@ -329,6 +334,8 @@ export function GroupContainersLayer() {
     const onPointerEnter: React.PointerEventHandler<SVGRectElement> = () => {
       try {
         setHoveredGroupId(groupId);
+        const { setHoveredVisualGroupId } = useCanvasStore.getState();
+        setHoveredVisualGroupId(groupId);
       } catch {
         // ignore
       }
@@ -339,6 +346,10 @@ export function GroupContainersLayer() {
         const st = dragRef.current;
         if (st && st.parentId === (groupId as unknown as NodeId) && st.dragging) return;
         setHoveredGroupId((prev: string | null) => (prev === groupId ? null : prev));
+        const { setHoveredVisualGroupId } = useCanvasStore.getState();
+        if (useCanvasStore.getState().hoveredVisualGroupId === groupId) {
+          setHoveredVisualGroupId(null);
+        }
       } catch {
         // ignore
       }
@@ -525,7 +536,11 @@ export function GroupContainersLayer() {
           const handlers = makePointerHandlers(c.groupId, c.members);
           const isActive =
             hoveredGroupId === c.groupId ||
+            hoveredGlobalGroupId === c.groupId ||
+            hoveredGlobalGroupIdSecondary === c.groupId ||
             (dragRef.current && dragRef.current.parentId === (c.groupId as unknown as NodeId) && dragRef.current.dragging);
+          const isSelected = selectedGroupId === c.groupId;
+          const showStroke = isActive || isSelected;
           return (
             <svg
               key={c.groupId}
@@ -545,8 +560,8 @@ export function GroupContainersLayer() {
               preserveAspectRatio="none"
               shapeRendering="geometricPrecision"
             >
-              {/* Visual stroke only when hovered or dragging */}
-              {isActive && (
+              {/* Visual stroke when hovered/dragging OR when the group is selected */}
+              {showStroke && (
                 <rect
                   data-testid="group-container-stroke"
                   x={0}
@@ -556,7 +571,7 @@ export function GroupContainersLayer() {
                   rx={14}
                   ry={14}
                   fill="transparent"
-                  stroke="rgba(59,130,246,0.9)"
+                  stroke={isSelected ? 'rgba(59,130,246,1)' : 'rgba(59,130,246,0.9)'}
                   strokeWidth={1.5}
                   vectorEffect="non-scaling-stroke"
                   style={{ pointerEvents: 'none' }}

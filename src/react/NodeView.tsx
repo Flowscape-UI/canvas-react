@@ -1,4 +1,4 @@
-import React, { forwardRef, useRef, useState } from 'react';
+import React, { forwardRef, useEffect, useRef, useState } from 'react';
 import type { Node, NodeId } from '../types';
 import {
   useDndActions,
@@ -62,6 +62,53 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
   const historyStartedRef = useRef(false);
   const DRAG_THRESHOLD_PX = 3;
   const [isHovered, setIsHovered] = useState(false);
+  const lastHoverVgIdRef = useRef<string | null>(null);
+  const lastHoverVgIdSecondaryRef = useRef<string | null>(null);
+  // Drag modality bookkeeping
+  const ctrlMetaAtDownRef = useRef(false);
+  const dragGroupMembersRef = useRef<NodeId[] | null>(null);
+  const clickedInsideInnerEditRef = useRef(false);
+  // Double-click drag scope mode for this node: default -> largest group, groupLocal -> smallest containing group, node -> single node
+  const dragScopeModeRef = useRef<'default' | 'groupLocal' | 'node'>('default');
+  // Context of the currently toggled group (members), used to detect outside clicks for reset
+  const dragScopeContextGroupMembersRef = useRef<NodeId[] | null>(null);
+  // When we pre-handle double-click in onPointerDown (for double-click-and-hold), skip the upcoming onDoubleClick
+  const skipNextDoubleClickRef = useRef(false);
+  // Double-click detection for pointerdown (React PointerEvent.detail can be unreliable)
+  const DOUBLE_CLICK_MS = 350;
+  const lastDownTsRef = useRef(0);
+  const clickCountRef = useRef(0);
+  // Track a possible double-click-and-hold sequence; finalized on drag start
+  const doubleClickHoldCandidateRef = useRef(false);
+  // When true, this gesture should drag only this node regardless of persistent mode
+  const forceNodeDragGestureRef = useRef(false);
+
+  // Reset drag-scope mode when user clicks outside the stored group context
+  useEffect(() => {
+    const onDocPointerDown = (ev: PointerEvent) => {
+      const mode = dragScopeModeRef.current;
+      if (mode === 'default') return;
+      // Determine clicked node id, if any
+      const target = ev.target as Element | null;
+      const nodeEl = target?.closest?.('[data-rc-nodeid]') as HTMLElement | null;
+      const clickedNodeId = nodeEl?.getAttribute('data-rc-nodeid') as NodeId | undefined;
+      const members = dragScopeContextGroupMembersRef.current;
+      const insideGroup = !!(clickedNodeId && members && members.includes(clickedNodeId));
+      if (!insideGroup) {
+        // Reset mode and context; also exit inner-edit so user must double-click again
+        dragScopeModeRef.current = 'default';
+        dragScopeContextGroupMembersRef.current = null;
+        try {
+          exitInnerEdit();
+        } catch {
+          // ignore
+        }
+      }
+    };
+    document.addEventListener('pointerdown', onDocPointerDown, { capture: true });
+    return () => document.removeEventListener('pointerdown', onDocPointerDown, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Appearance defaults (pill-like as on the reference image)
   const defaultAppearance: NodeAppearance = {
@@ -80,16 +127,63 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
   };
 
   const onDoubleClick: React.MouseEventHandler<HTMLDivElement> = (e) => {
-    // Enter inner-edit on this node. Left button only.
+    if (skipNextDoubleClickRef.current) {
+      skipNextDoubleClickRef.current = false;
+      return;
+    }
+    // Toggle drag scope for this node with double-click. Left button only.
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
-    enterInnerEdit(node.id);
+    const mode = dragScopeModeRef.current;
+    if (mode === 'groupLocal') {
+      // Switch to node-only: enter inner-edit so drags are scoped to this node subtree
+      dragScopeModeRef.current = 'node';
+      enterInnerEdit(node.id);
+    } else {
+      // Switch to smallest containing visual group: exit inner-edit if any
+      dragScopeModeRef.current = 'groupLocal';
+      exitInnerEdit();
+      // Compute and store the SMALLEST containing visual group for this node as context
+      try {
+        const st = useCanvasStore.getState();
+        const groups = Object.values(st.visualGroups);
+        let smallest: NodeId[] | null = null;
+        let bestArea = Infinity;
+        for (const vg of groups) {
+          if (!vg.members.includes(node.id as NodeId)) continue;
+          let left = Infinity,
+            top = Infinity,
+            right = -Infinity,
+            bottom = -Infinity;
+          for (const mid of vg.members) {
+            const n = st.nodes[mid as NodeId];
+            if (!n) continue;
+            left = Math.min(left, n.x);
+            top = Math.min(top, n.y);
+            right = Math.max(right, n.x + n.width);
+            bottom = Math.max(bottom, n.y + n.height);
+          }
+          if (left === Infinity) continue;
+          const area = Math.max(0, right - left) * Math.max(0, bottom - top);
+          if (area < bestArea) {
+            bestArea = area;
+            smallest = vg.members.slice() as NodeId[];
+          }
+        }
+        dragScopeContextGroupMembersRef.current = smallest;
+      } catch {
+        // ignore
+      }
+    }
+    // Reset double-click counters to avoid accidental pre-toggle on subsequent pointerdowns
+    clickCountRef.current = 0;
+    lastDownTsRef.current = 0;
   };
+  // Merge appearance props and set up content helpers
   const A = { ...defaultAppearance, ...(appearance ?? {}) } as NodeAppearance;
   const hasCustomChildren = children != null;
   const contentLabel = 'New Node';
-
   // Auto-pan bookkeeping
   const canvasElRef = useRef<HTMLElement | null>(null);
   const autoRafRef = useRef<number | null>(null);
@@ -181,7 +275,22 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
   const onPointerDown: React.PointerEventHandler<HTMLDivElement> = (e) => {
     // Left button only
     if (e.button !== 0) return;
-    // Determine which id to act on.
+
+    // Time-based double-click detection to support double-click-and-hold
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const last = lastDownTsRef.current || 0;
+    if (now - last <= DOUBLE_CLICK_MS) {
+      clickCountRef.current = (clickCountRef.current || 0) + 1;
+    } else {
+      clickCountRef.current = 1;
+    }
+    lastDownTsRef.current = now;
+
+    if (clickCountRef.current === 2) {
+      // Mark as potential double-click-and-hold; final decision will be made on drag start
+      doubleClickHoldCandidateRef.current = true;
+    }
+
     const st = useCanvasStore.getState();
     const innerEditId = st.innerEditNodeId;
     // Helper: is clicked node within current inner-edit scope?
@@ -194,30 +303,87 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
       }
       return false;
     };
-    // Compute group root by walking parentId chain
-    const rootId: NodeId = (() => {
-      let cur: NodeId | null = node.id as NodeId;
-      while (cur != null) {
-        const p: NodeId | null = (st.nodes[cur] && st.nodes[cur].parentId) || null;
-        if (p == null) break;
-        cur = p;
-      }
-      return cur as NodeId;
-    })();
-    // If in inner-edit and clicked inside scope -> act on the node itself; else act on root
     const clickedInside = innerEditId ? isWithinScope(node.id as NodeId) : false;
+    clickedInsideInnerEditRef.current = clickedInside;
     if (innerEditId && !clickedInside) {
       // Clicked outside inner-edit -> leave it
       exitInnerEdit();
     }
-    const targetId = clickedInside ? (node.id as NodeId) : (rootId || node.id);
 
-    // Multi-select: Ctrl/Cmd toggles membership. Shift is reserved for future.
-    if (e.ctrlKey || e.metaKey) {
-      toggleInSelection(targetId);
-    } else if (!useCanvasStore.getState().selected[targetId]) {
-      // If target is not selected, select only it. If already selected, preserve current multi-selection
-      selectOnly(targetId);
+    // Record modifier state at down time
+    ctrlMetaAtDownRef.current = !!(e.ctrlKey || e.metaKey);
+
+    // Decide potential drag scope honoring double-click mode
+    if (!ctrlMetaAtDownRef.current) {
+      const mode = dragScopeModeRef.current;
+      const nodeScopeActive = (mode === 'node' && !!innerEditId) || clickedInside;
+      if (nodeScopeActive) {
+        // Explicit node scope while inner-edit active, or clicked inside inner-edit -> single-node drag
+        dragGroupMembersRef.current = null;
+      } else {
+        const groups = Object.values(st.visualGroups);
+        let chosen: { id: string; members: NodeId[] } | null = null;
+        if (groups.length > 0) {
+          if (mode === 'groupLocal') {
+            // Choose SMALLEST containing visual group (local)
+            let bestArea = Infinity;
+            for (const vg of groups) {
+              if (!vg.members.includes(node.id as NodeId)) continue;
+              let left = Infinity,
+                top = Infinity,
+                right = -Infinity,
+                bottom = -Infinity;
+              for (const mid of vg.members) {
+                const n = st.nodes[mid as NodeId];
+                if (!n) continue;
+                left = Math.min(left, n.x);
+                top = Math.min(top, n.y);
+                right = Math.max(right, n.x + n.width);
+                bottom = Math.max(bottom, n.y + n.height);
+              }
+              if (left === Infinity) continue;
+              const area = Math.max(0, right - left) * Math.max(0, bottom - top);
+              if (area < bestArea) {
+                bestArea = area;
+                chosen = { id: vg.id, members: vg.members.slice() as NodeId[] };
+              }
+            }
+          } else {
+            // Default behavior: choose LARGEST containing visual group if any
+            let bestArea = -Infinity;
+            for (const vg of groups) {
+              if (!vg.members.includes(node.id as NodeId)) continue;
+              let left = Infinity,
+                top = Infinity,
+                right = -Infinity,
+                bottom = -Infinity;
+              for (const mid of vg.members) {
+                const n = st.nodes[mid as NodeId];
+                if (!n) continue;
+                left = Math.min(left, n.x);
+                top = Math.min(top, n.y);
+                right = Math.max(right, n.x + n.width);
+                bottom = Math.max(bottom, n.y + n.height);
+              }
+              if (left === Infinity) continue;
+              const area = Math.max(0, right - left) * Math.max(0, bottom - top);
+              if (area > bestArea) {
+                bestArea = area;
+                chosen = { id: vg.id, members: vg.members.slice() as NodeId[] };
+              }
+            }
+          }
+        }
+        dragGroupMembersRef.current = chosen ? chosen.members : null;
+      }
+    } else {
+      // Ctrl/Cmd: do not group-drag; selection toggling applies
+      dragGroupMembersRef.current = null;
+    }
+
+    // Multi-select toggle remains immediate when Ctrl/Cmd is pressed
+    if (ctrlMetaAtDownRef.current) {
+      toggleInSelection(node.id as NodeId);
     }
     // Stop propagation so canvas navigation doesn't start panning on node click
     e.stopPropagation();
@@ -262,6 +428,33 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
     const totalDy = Math.abs(e.clientY - startYRef.current);
     if (!draggingRef.current) {
       if (totalDx > DRAG_THRESHOLD_PX || totalDy > DRAG_THRESHOLD_PX) {
+        // Transition into dragging: decide selection now
+        if (doubleClickHoldCandidateRef.current) {
+          // This is a double-click-and-hold -> force node-only drag for this gesture
+          forceNodeDragGestureRef.current = true;
+          skipNextDoubleClickRef.current = true; // suppress the upcoming onDoubleClick
+          doubleClickHoldCandidateRef.current = false;
+        }
+        if (!ctrlMetaAtDownRef.current) {
+          if (
+            !forceNodeDragGestureRef.current &&
+            dragGroupMembersRef.current &&
+            dragGroupMembersRef.current.length > 0
+          ) {
+            const ids = dragGroupMembersRef.current as NodeId[];
+            // Replace selection with full group
+            selectOnly(ids[0]);
+            for (let i = 1; i < ids.length; i++) {
+              // Avoid duplicates
+              if (!useCanvasStore.getState().selected[ids[i]]) {
+                useCanvasStore.getState().addToSelection(ids[i]);
+              }
+            }
+          } else {
+            // Single-node drag
+            selectOnly(node.id as NodeId);
+          }
+        }
         draggingRef.current = true;
         if (!historyStartedRef.current) {
           beginHistory();
@@ -289,6 +482,9 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
     draggingRef.current = false;
     pointerIdRef.current = null;
     stopAutoPan();
+    // Clear gesture-scoped flags
+    forceNodeDragGestureRef.current = false;
+    doubleClickHoldCandidateRef.current = false;
     if (historyStartedRef.current) {
       endHistory();
       historyStartedRef.current = false;
@@ -301,6 +497,10 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
       (e.currentTarget as HTMLElement).releasePointerCapture(pointerIdRef.current);
     } catch {
       // ignore
+    }
+    // If this was a click (no drag) and no Ctrl/Cmd, select only the node per spec
+    if (!draggingRef.current && !ctrlMetaAtDownRef.current) {
+      selectOnly(node.id as NodeId);
     }
     // No auto-grouping on drop; grouping is Ctrl/Cmd+G only
     finishDrag();
@@ -349,8 +549,74 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerCancel}
       onDoubleClick={onDoubleClick}
-      onPointerEnter={() => setIsHovered(true)}
-      onPointerLeave={() => setIsHovered(false)}
+      onPointerEnter={() => {
+        setIsHovered(true);
+        try {
+          // Determine largest and smallest visual groups containing this node (for dual highlight)
+          const st = useCanvasStore.getState();
+          const groups = Object.values(st.visualGroups);
+          if (!groups || groups.length === 0) return;
+          let largestId: string | null = null;
+          let largestArea = -Infinity;
+          let smallestId: string | null = null;
+          let smallestArea = Infinity;
+          for (const vg of groups) {
+            if (!vg.members.includes(node.id)) continue;
+            let left = Infinity,
+              top = Infinity,
+              right = -Infinity,
+              bottom = -Infinity;
+            for (const mid of vg.members) {
+              const n = st.nodes[mid];
+              if (!n) continue;
+              left = Math.min(left, n.x);
+              top = Math.min(top, n.y);
+              right = Math.max(right, n.x + n.width);
+              bottom = Math.max(bottom, n.y + n.height);
+            }
+            if (left === Infinity) continue;
+            const area = Math.max(0, right - left) * Math.max(0, bottom - top);
+            if (area > largestArea) {
+              largestArea = area;
+              largestId = vg.id;
+            }
+            if (area < smallestArea) {
+              smallestArea = area;
+              smallestId = vg.id;
+            }
+          }
+          if (largestId) {
+            lastHoverVgIdRef.current = largestId;
+            st.setHoveredVisualGroupId(largestId);
+          }
+          const secondaryId = smallestId && smallestId !== largestId ? smallestId : null;
+          lastHoverVgIdSecondaryRef.current = secondaryId;
+          st.setHoveredVisualGroupIdSecondary(secondaryId);
+        } catch {
+          // ignore
+        }
+      }}
+      onPointerLeave={() => {
+        setIsHovered(false);
+        try {
+          const st = useCanvasStore.getState();
+          const last = lastHoverVgIdRef.current;
+          if (last && st.hoveredVisualGroupId === last) {
+            st.setHoveredVisualGroupId(null);
+          }
+          const lastSec = lastHoverVgIdSecondaryRef.current;
+          if (lastSec && st.hoveredVisualGroupIdSecondary === lastSec) {
+            st.setHoveredVisualGroupIdSecondary(null);
+          } else if (!lastSec && st.hoveredVisualGroupIdSecondary != null) {
+            // If we previously set null secondary for this node, also clear any residual
+            st.setHoveredVisualGroupIdSecondary(null);
+          }
+          lastHoverVgIdRef.current = null;
+          lastHoverVgIdSecondaryRef.current = null;
+        } catch {
+          // ignore
+        }
+      }}
       data-rc-nodeid={node.id}
     >
       {hasCustomChildren ? children : contentLabel}

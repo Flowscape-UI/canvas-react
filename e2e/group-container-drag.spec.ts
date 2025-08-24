@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test';
 
 // Storybook story: 'Core/Canvas: Basic'
-const storyUrl = '/iframe.html?id=core-canvas--basic&args-showHints:false&args-showHistoryPanel:false';
+const storyUrl =
+  '/iframe.html?id=core-canvas--basic&args-showHints:false&args-showHistoryPanel:false';
 
 // Helpers to interact with the exposed Zustand store
 async function getNodeXY(page: import('@playwright/test').Page, id: string) {
@@ -69,9 +70,25 @@ test('dragging a group container moves all descendants (including grandchildren)
     store.getState().groupNodes('n2', ['n3']);
   });
 
-  // Ensure the group container for n1 is present
+  // Create a visual group from selection (UI-only group container)
+  await page.evaluate(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const store = (window as any).__RC_STORE;
+    const { selectOnly, addToSelection, createVisualGroupFromSelection } = store.getState();
+    selectOnly('n1');
+    addToSelection('n2');
+    createVisualGroupFromSelection();
+  });
+
+  // Resolve the visual group id and ensure its container is present
+  const vgId = await page.evaluate(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const store = (window as any).__RC_STORE;
+    return store.getState().selectedVisualGroupId as string;
+  });
+  expect(vgId).toBeTruthy();
   const containerHit = page.locator(
-    '[data-testid="group-container"][data-parent-id="n1"] [data-testid="group-container-hit"]',
+    `[data-testid="group-container"][data-parent-id="${vgId}"] [data-testid="group-container-hit"]`,
   );
   await expect(containerHit).toBeVisible();
 

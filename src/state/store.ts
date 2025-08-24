@@ -37,6 +37,10 @@ export type CanvasState = {
   readonly visualGroups: Record<string, { id: string; members: NodeId[] }>;
   /** UI: currently selected visual group id (single-select for now) */
   readonly selectedVisualGroupId: string | null;
+  /** UI: currently hovered visual group id (drives container highlight from node hover) */
+  readonly hoveredVisualGroupId: string | null;
+  /** UI: secondary hovered visual group id for dual highlight (e.g., local group alongside parent) */
+  readonly hoveredVisualGroupIdSecondary: string | null;
   /** UI: inner-edit mode target node; when set, drags affect only this node (and its descendants). */
   readonly innerEditNodeId: NodeId | null;
   /** Internal counter for add-at-center offset progression. */
@@ -107,6 +111,8 @@ export type CanvasActions = {
   // Visual groups (UI-only)
   createVisualGroupFromSelection: () => void;
   selectVisualGroup: (id: string | null) => void;
+  setHoveredVisualGroupId: (id: string | null) => void;
+  setHoveredVisualGroupIdSecondary: (id: string | null) => void;
   // Clipboard
   copySelection: () => void;
   cutSelection: () => void;
@@ -125,6 +131,8 @@ const initialNodes: Record<NodeId, Node> = {};
 const initialSelected: Record<NodeId, true> = {};
 const initialVisualGroups: CanvasState['visualGroups'] = {};
 const initialSelectedVisualGroupId: CanvasState['selectedVisualGroupId'] = null;
+const initialHoveredVisualGroupId: CanvasState['hoveredVisualGroupId'] = null;
+const initialHoveredVisualGroupIdSecondary: CanvasState['hoveredVisualGroupIdSecondary'] = null;
 const initialInnerEditNodeId: CanvasState['innerEditNodeId'] = null;
 const initialCenterAddIndex = 0;
 const initialClipboard: CanvasState['clipboard'] = null;
@@ -146,6 +154,8 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
   selected: initialSelected,
   visualGroups: initialVisualGroups,
   selectedVisualGroupId: initialSelectedVisualGroupId,
+  hoveredVisualGroupId: initialHoveredVisualGroupId,
+  hoveredVisualGroupIdSecondary: initialHoveredVisualGroupIdSecondary,
   innerEditNodeId: initialInnerEditNodeId,
   centerAddIndex: initialCenterAddIndex,
   clipboard: initialClipboard,
@@ -828,17 +838,38 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
   // Visual groups (UI-only)
   createVisualGroupFromSelection: () =>
     set((s) => {
-      const memberIds = Object.keys(s.selected) as NodeId[];
-      if (!memberIds || memberIds.length < 2) return {} as Partial<CanvasStore> as CanvasStore;
+      // Start from explicitly selected node ids
+      const selectedIds = Object.keys(s.selected) as NodeId[];
+      if (!selectedIds || selectedIds.length < 2) return {} as Partial<CanvasStore> as CanvasStore;
+
+      // If selection touches any existing visual groups, include ALL their members
+      // so the newly created group visually contains those groups.
+      const union = new Set<NodeId>(selectedIds);
+      for (const vg of Object.values(s.visualGroups)) {
+        // Does this group contain at least one selected node?
+        let touches = false;
+        for (const id of selectedIds) {
+          if (vg.members.includes(id)) {
+            touches = true;
+            break;
+          }
+        }
+        if (touches) {
+          for (const m of vg.members) union.add(m as NodeId);
+        }
+      }
+
       // Create a stable-ish id
       const id = `vg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const vg = { id, members: memberIds.slice() };
+      const vg = { id, members: Array.from(union) };
       return {
         visualGroups: { ...s.visualGroups, [id]: vg },
         selectedVisualGroupId: id,
       } as Partial<CanvasStore> as CanvasStore;
     }),
   selectVisualGroup: (id) => set({ selectedVisualGroupId: id }),
+  setHoveredVisualGroupId: (id) => set({ hoveredVisualGroupId: id }),
+  setHoveredVisualGroupIdSecondary: (id) => set({ hoveredVisualGroupIdSecondary: id }),
 
   // Clipboard actions
   copySelection: () =>
