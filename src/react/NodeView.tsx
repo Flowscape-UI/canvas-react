@@ -1,5 +1,5 @@
 import React, { forwardRef, useRef, useState } from 'react';
-import type { Node } from '../types';
+import type { Node, NodeId } from '../types';
 import {
   useDndActions,
   useIsSelected,
@@ -7,6 +7,8 @@ import {
   useCamera,
   useCanvasActions,
   useHistoryActions,
+  useCanvasStore,
+  useInnerEditActions,
 } from '../state/store';
 
 type NodeAppearance = {
@@ -46,7 +48,9 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
   const { moveSelectedBy } = useDndActions();
   const camera = useCamera();
   const { panBy } = useCanvasActions();
+  const { enterInnerEdit, exitInnerEdit } = useInnerEditActions();
   const { beginHistory, endHistory } = useHistoryActions();
+  // Grouping is triggered exclusively via Ctrl/Cmd+G keyboard shortcut handled in useCanvasNavigation.
 
   // Drag bookkeeping
   const startXRef = useRef(0);
@@ -73,6 +77,14 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
     padding: 10,
     fontSize: 14,
     fontWeight: 600,
+  };
+
+  const onDoubleClick: React.MouseEventHandler<HTMLDivElement> = (e) => {
+    // Enter inner-edit on this node. Left button only.
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    enterInnerEdit(node.id);
   };
   const A = { ...defaultAppearance, ...(appearance ?? {}) } as NodeAppearance;
   const hasCustomChildren = children != null;
@@ -169,12 +181,43 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
   const onPointerDown: React.PointerEventHandler<HTMLDivElement> = (e) => {
     // Left button only
     if (e.button !== 0) return;
+    // Determine which id to act on.
+    const st = useCanvasStore.getState();
+    const innerEditId = st.innerEditNodeId;
+    // Helper: is clicked node within current inner-edit scope?
+    const isWithinScope = (id: NodeId): boolean => {
+      if (!innerEditId) return false;
+      let cur: NodeId | null | undefined = id;
+      while (cur != null) {
+        if (cur === innerEditId) return true;
+        cur = st.nodes[cur]?.parentId ?? null;
+      }
+      return false;
+    };
+    // Compute group root by walking parentId chain
+    const rootId: NodeId = (() => {
+      let cur: NodeId | null = node.id as NodeId;
+      while (cur != null) {
+        const p: NodeId | null = (st.nodes[cur] && st.nodes[cur].parentId) || null;
+        if (p == null) break;
+        cur = p;
+      }
+      return cur as NodeId;
+    })();
+    // If in inner-edit and clicked inside scope -> act on the node itself; else act on root
+    const clickedInside = innerEditId ? isWithinScope(node.id as NodeId) : false;
+    if (innerEditId && !clickedInside) {
+      // Clicked outside inner-edit -> leave it
+      exitInnerEdit();
+    }
+    const targetId = clickedInside ? (node.id as NodeId) : (rootId || node.id);
+
     // Multi-select: Ctrl/Cmd toggles membership. Shift is reserved for future.
     if (e.ctrlKey || e.metaKey) {
-      toggleInSelection(node.id);
-    } else if (!isSelected) {
-      // If node is not selected, select only it. If already selected, preserve current multi-selection
-      selectOnly(node.id);
+      toggleInSelection(targetId);
+    } else if (!useCanvasStore.getState().selected[targetId]) {
+      // If target is not selected, select only it. If already selected, preserve current multi-selection
+      selectOnly(targetId);
     }
     // Stop propagation so canvas navigation doesn't start panning on node click
     e.stopPropagation();
@@ -259,6 +302,7 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
     } catch {
       // ignore
     }
+    // No auto-grouping on drop; grouping is Ctrl/Cmd+G only
     finishDrag();
   };
 
@@ -287,12 +331,12 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
         boxShadow: unstyled
           ? undefined
           : isHovered
-          ? A.hoverShadow
-          : isSelected
-          ? A.selectedShadow || A.shadow
-          : A.shadow,
+            ? A.hoverShadow
+            : isSelected
+              ? A.selectedShadow || A.shadow
+              : A.shadow,
         transition: 'box-shadow 120ms ease',
-        padding: unstyled ? undefined : (hasCustomChildren ? undefined : A.padding),
+        padding: unstyled ? undefined : hasCustomChildren ? undefined : A.padding,
         display: hasCustomChildren ? undefined : 'flex',
         alignItems: hasCustomChildren ? undefined : 'center',
         justifyContent: hasCustomChildren ? undefined : 'center',
@@ -304,6 +348,7 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerCancel}
+      onDoubleClick={onDoubleClick}
       onPointerEnter={() => setIsHovered(true)}
       onPointerLeave={() => setIsHovered(false)}
       data-rc-nodeid={node.id}

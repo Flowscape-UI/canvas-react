@@ -43,7 +43,6 @@ describe('BackgroundCells (world-locked, smooth)', () => {
     const { container, unmount } = await render(<BackgroundCells size={24} />);
     const el = container.firstElementChild as HTMLDivElement;
 
-
     await act(async () => {
       useCanvasStore.getState().setCamera({ zoom: 1, offsetX: 20, offsetY: -5 });
     });

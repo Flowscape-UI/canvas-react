@@ -25,7 +25,7 @@ npm i @flowscape-ui/canvas-react
   - Single select: left-click on a node.
   - Multi-select: Ctrl/Cmd + left-click toggles node in selection.
   - Deselect: left-click on empty canvas area (a simple click without dragging).
-  - Shift is reserved for future features (e.g., range/box selection).
+  - Left-drag on empty canvas area: box-select nodes.
 - Drag & History:
   - Drag nodes (single or multi-select) without panning the canvas thanks to hit-testing.
   - Dragging batches updates into a single history entry; Undo/Redo reverts/applies the whole drag as one action.
@@ -44,7 +44,7 @@ import { useRef, useEffect } from 'react';
 
 export default function Example() {
   const ref = useRef<HTMLDivElement | null>(null);
-  useCanvasNavigation(ref, { panButton: 0 });
+  useCanvasNavigation(ref, { panButton: 1 }); // pan with middle button (or 2 for right)
   const nodes = useNodes();
   const { addNode } = useNodeActions();
 
@@ -221,7 +221,7 @@ If you prefer to fully control visuals:
 - Click on a node: it becomes the only selected node.
 - Ctrl/Cmd + Click: toggles the clicked node in the selection set.
 - Click on empty space (no mouse movement): clears selection.
-- Dragging on empty space pans the canvas and does not change selection.
+- Left-drag on empty space performs box selection. Panning uses the middle (button 1) or right (button 2) mouse button.
 
 ### Keyboard & Shortcuts
 
@@ -266,7 +266,7 @@ import { useRef } from 'react';
 export default function Example() {
   const ref = useRef<HTMLDivElement | null>(null);
   useCanvasNavigation(ref, {
-    panButton: 0,
+    panButton: 1,
     panModifier: 'none',
     wheelZoom: true,
     wheelModifier: 'ctrl',

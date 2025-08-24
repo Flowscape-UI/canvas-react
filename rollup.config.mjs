@@ -2,6 +2,7 @@ import resolve from '@rollup/plugin-node-resolve';
 import commonjs from '@rollup/plugin-commonjs';
 import replace from '@rollup/plugin-replace';
 import typescript from '@rollup/plugin-typescript';
+import { visualizer } from 'rollup-plugin-visualizer';
 
 /** @type {import('rollup').RollupOptions} */
 const config = {
@@ -22,6 +23,12 @@ const config = {
     commonjs(),
     replace({ preventAssignment: true, 'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'production') }),
     typescript({ tsconfig: './tsconfig.json' }),
+    visualizer({
+      filename: 'dist/bundle-report.html',
+      template: 'treemap',
+      gzipSize: true,
+      brotliSize: true,
+    }),
   ],
 };
 

@@ -48,12 +48,18 @@ if (typeof g.PointerEvent === 'undefined') {
       this.isPrimary = params.isPrimary ?? true;
     }
   }
-  (globalThis as unknown as { PointerEvent: typeof Event }).PointerEvent = PointerEventPolyfill as unknown as typeof Event;
+  (globalThis as unknown as { PointerEvent: typeof Event }).PointerEvent =
+    PointerEventPolyfill as unknown as typeof Event;
 }
 
 function TestHost() {
   const ref = useRef<HTMLDivElement>(null);
-  useCanvasNavigation(ref, { panButton: 0, panModifier: 'none', wheelZoom: false, doubleClickZoom: false });
+  useCanvasNavigation(ref, {
+    panButton: 1,
+    panModifier: 'none',
+    wheelZoom: false,
+    doubleClickZoom: false,
+  });
   const node = useCanvasStore.getState().nodes['d1'];
   if (!node) return <div data-rc-canvas ref={ref} style={{ width: 800, height: 600 }} />;
 
@@ -120,6 +126,41 @@ describe('NodeView DnD UI + hit-testing vs canvas pan', () => {
     const last = s.historyPast[0];
     // Only updates inside the batch
     expect(last.changes.every((c) => c.kind === 'update')).toBe(true);
+
+    unmount();
+  });
+
+  it('dropping a node inside a group container does NOT auto-group; only movement is recorded in one batch', async () => {
+    // Setup: Group root G with descendant g1 -> container exists; draggable d1 is selected
+    useCanvasStore.setState((s) => ({
+      ...s,
+      camera: { zoom: 1, offsetX: 0, offsetY: 0 },
+      nodes: {
+        d1: { id: 'd1', x: 20, y: 20, width: 40, height: 20 } as Node,
+        G: { id: 'G', x: 200, y: 100, width: 100, height: 60 } as Node,
+        g1: { id: 'g1', x: 340, y: 120, width: 40, height: 30, parentId: 'G' } as Node,
+      },
+      selected: { d1: true },
+      historyPast: [],
+      historyFuture: [],
+      historyBatch: null,
+    }));
+
+    const { container, unmount } = await render(<TestHost />);
+    let nodeEl = container.querySelector('[data-rc-nodeid="d1"]') as HTMLElement | null;
+    if (!nodeEl) nodeEl = document.querySelector('[data-rc-nodeid="d1"]') as HTMLElement | null;
+    expect(nodeEl).toBeTruthy();
+
+    // Start drag on d1 and drop inside G's container (which spans roughly [192..388]x[92..168])
+    dispatchPointer(nodeEl!, 'pointerdown', { button: 0, clientX: 30, clientY: 30 });
+    dispatchPointer(nodeEl!, 'pointermove', { clientX: 45, clientY: 45 }); // exceed threshold
+    dispatchPointer(nodeEl!, 'pointerup', { button: 0, clientX: 210, clientY: 110 }); // inside G container
+
+    const s = useCanvasStore.getState();
+    // Node d1 should NOT have been auto-adopted into G (grouping now only via Ctrl/Cmd+G)
+    expect(s.nodes['d1'].parentId).toBeUndefined();
+    // Batch count: one history entry for the drag movement only
+    expect(s.historyPast.length).toBe(1);
 
     unmount();
   });

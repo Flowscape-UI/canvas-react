@@ -11,7 +11,7 @@ function TestHost() {
   const ref = useRef<HTMLDivElement>(null);
   // Mount navigation to simulate a real canvas host; disable zoom shortcuts to avoid warnings/noise
   useCanvasNavigation(ref, {
-    panButton: 0,
+    panButton: 1,
     panModifier: 'none',
     wheelZoom: false,
     doubleClickZoom: false,

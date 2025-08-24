@@ -1,9 +1,10 @@
 import { useEffect } from 'react';
 import type { RefObject } from 'react';
 import { useCanvasStore } from '../state/store';
+import { screenToWorld } from '../core/coords';
 
 export type CanvasNavigationOptions = {
-  panButton?: 0 | 1 | 2; // left | middle | right
+  panButton?: 1 | 2; // middle | right (left is reserved for selection)
   panModifier?: 'none' | 'shift' | 'alt' | 'ctrl';
   wheelZoom?: boolean;
   wheelModifier?: 'none' | 'shift' | 'alt' | 'ctrl'; // убрать отсюда shift
@@ -30,7 +31,7 @@ export type CanvasNavigationOptions = {
 };
 
 const defaultOptions: Required<CanvasNavigationOptions> = {
-  panButton: 0,
+  panButton: 1,
   panModifier: 'none',
   wheelZoom: true,
   wheelModifier: 'none',
@@ -67,7 +68,7 @@ function hasReleasePointerCapture(
  * Attach interactive navigation (pan/zoom) to a Canvas root element.
  * Usage:
  * const ref = useRef<HTMLDivElement>(null);
- * useCanvasNavigation(ref, { panButton: 0 });
+ * useCanvasNavigation(ref, { panButton: 1 }); // pan with middle button (or 2 for right)
  */
 export function useCanvasNavigation(
   ref: RefObject<HTMLElement>,
@@ -84,6 +85,10 @@ export function useCanvasNavigation(
     let lastX = 0;
     let lastY = 0;
     let prevCursor: string | null = null;
+    // Track last known pointer position (client coordinates) over the canvas
+    let hasLastPointer = false;
+    let lastClientX = 0;
+    let lastClientY = 0;
 
     // ensure pointer events behave for pan/zoom
     const prevTouchAction = el.style.touchAction;
@@ -125,6 +130,8 @@ export function useCanvasNavigation(
     }
 
     function onPointerDown(e: PointerEvent) {
+      // Do not allow panning with the left button even if misconfigured
+      if (e.button === 0) return;
       if (e.button !== opts.panButton) return;
       if (!modifierPressed(e)) return;
       // Do not start panning when interacting with a Node element
@@ -160,6 +167,10 @@ export function useCanvasNavigation(
     }
 
     function onPointerMove(e: PointerEvent) {
+      // Always update last hover position
+      lastClientX = e.clientX;
+      lastClientY = e.clientY;
+      hasLastPointer = true;
       if (!isPanning) return;
       const dx = e.clientX - lastX;
       const dy = e.clientY - lastY;
@@ -192,12 +203,38 @@ export function useCanvasNavigation(
       }
     }
 
+    function onPointerCancel(e: PointerEvent) {
+      if (!isPanning) return;
+      isPanning = false;
+      try {
+        const { endHistory } = useCanvasStore.getState();
+        endHistory();
+      } catch {
+        // ignore
+      }
+      if (prevCursor !== null) {
+        rootEl.style.cursor = prevCursor;
+      }
+      const target = e.target as Element | null;
+      if (target && hasReleasePointerCapture(target)) {
+        try {
+          target.releasePointerCapture((e as PointerEvent).pointerId);
+        } catch {
+          // ignore
+        }
+      }
+    }
+
     function onWheel(e: WheelEvent) {
       const currentEl = ref.current;
       if (!currentEl) return;
 
       const rect = currentEl.getBoundingClientRect();
       const screenPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      // Update last pointer position from wheel events as well
+      lastClientX = e.clientX;
+      lastClientY = e.clientY;
+      hasLastPointer = true;
 
       // Heuristic detection
       const isPinchZoom = e.ctrlKey === true; // treat Ctrl+wheel as pinch/zoom for both mouse and touchpad
@@ -285,11 +322,17 @@ export function useCanvasNavigation(
       if (!opts.doubleClickZoom) return;
       // Only respond to left-button double click
       if (e.button !== 0) return;
+      // Ignore double-clicks that originate on a node (NodeView handles inner-edit)
+      if (isFromNode(e.target)) return;
       e.preventDefault();
       const currentEl = ref.current;
       if (!currentEl) return;
       const rect = currentEl.getBoundingClientRect();
       const screenPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      // Update last pointer position from dblclick
+      lastClientX = e.clientX;
+      lastClientY = e.clientY;
+      hasLastPointer = true;
       // If zoom-out is enabled and its modifier is held, perform zoom-out
       let factor = opts.doubleClickZoomFactor;
       const outMod = opts.doubleClickZoomOutModifier;
@@ -317,6 +360,7 @@ export function useCanvasNavigation(
     el.addEventListener('pointerdown', onPointerDown);
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerCancel);
     el.addEventListener('wheel', onWheel, { passive: false });
     el.addEventListener('dblclick', onDblClick);
     // keyboard navigation: arrows/WASD to pan (if enabled), +/- to zoom at center
@@ -331,6 +375,16 @@ export function useCanvasNavigation(
     function onKeyDown(e: KeyboardEvent) {
       // ignore if typing in inputs/contenteditable
       if (isTextInput(e.target as Element)) return;
+
+      // Escape exits inner-edit mode if active
+      if (e.key === 'Escape') {
+        const { innerEditNodeId, exitInnerEdit } = useCanvasStore.getState();
+        if (innerEditNodeId) {
+          e.preventDefault();
+          exitInnerEdit();
+          return;
+        }
+      }
 
       const { camera, panBy, zoomByAt } = useCanvasStore.getState();
       const invZoom = 1 / camera.zoom;
@@ -372,6 +426,69 @@ export function useCanvasNavigation(
         }
       }
 
+      // Clipboard: Ctrl/Cmd + C / X / V
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+        const keyLower = e.key.toLowerCase();
+        if (keyLower === 'g') {
+          const { selected, createVisualGroupFromSelection } = useCanvasStore.getState();
+          if (Object.keys(selected).length >= 2) {
+            e.preventDefault();
+            createVisualGroupFromSelection();
+            return;
+          }
+        }
+        if (keyLower === 'c') {
+          const { selected, copySelection } = useCanvasStore.getState();
+          if (Object.keys(selected).length > 0) {
+            e.preventDefault();
+            copySelection();
+            return;
+          }
+        } else if (keyLower === 'x') {
+          const { selected, cutSelection } = useCanvasStore.getState();
+          if (Object.keys(selected).length > 0) {
+            e.preventDefault();
+            cutSelection();
+            return;
+          }
+        } else if (keyLower === 'v') {
+          e.preventDefault();
+          const { camera, pasteClipboard } = useCanvasStore.getState();
+          const currentEl = ref.current;
+          if (currentEl && hasLastPointer) {
+            const rect = currentEl.getBoundingClientRect();
+            const screenPoint = { x: lastClientX - rect.left, y: lastClientY - rect.top };
+            const worldPoint = screenToWorld(screenPoint, camera);
+            pasteClipboard(worldPoint);
+          } else {
+            pasteClipboard();
+          }
+          return;
+        }
+      }
+
+      // Toggle rulers: Ctrl/Cmd + H
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+        const keyLower = e.key.toLowerCase();
+        if (keyLower === 'h') {
+          e.preventDefault();
+          const { toggleRulers } = useCanvasStore.getState();
+          toggleRulers();
+          return;
+        }
+      }
+
+      // deletion of active guide via Delete / Backspace
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        const { activeGuideId, removeGuide, setActiveGuide } = useCanvasStore.getState();
+        if (activeGuideId) {
+          e.preventDefault();
+          removeGuide(activeGuideId);
+          setActiveGuide(null);
+          return;
+        }
+      }
+
       // deletion: Delete / Backspace removes selected nodes
       if (e.key === 'Delete' || e.key === 'Backspace') {
         const { selected, deleteSelected } = useCanvasStore.getState();
@@ -404,6 +521,7 @@ export function useCanvasNavigation(
       rootEl.removeEventListener('pointerdown', onPointerDown);
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerCancel);
       rootEl.removeEventListener('wheel', onWheel);
       rootEl.removeEventListener('dblclick', onDblClick);
       rootEl.removeEventListener('keydown', onKeyDown);
