@@ -82,8 +82,7 @@ export function GroupContainersLayer() {
     return arr;
   }, [nodes, visualGroups]);
 
-  // Visual padding of 8 CSS px regardless of zoom => convert to world units
-  const PAD_WORLD = 8 / (camera.zoom || 1);
+  // No visual padding: containers and selection frames are tight to bounds
 
   const DRAG_THRESHOLD_PX = 3;
 
@@ -513,11 +512,11 @@ export function GroupContainersLayer() {
         }}
       >
         {containers.map((c) => {
-          // Base world rect with padding
-          let x = c.left - PAD_WORLD;
-          let y = c.top - PAD_WORLD;
-          let w = c.right - c.left + PAD_WORLD * 2;
-          let h = c.bottom - c.top + PAD_WORLD * 2;
+          // Base world rect (tight to members)
+          let x = c.left;
+          let y = c.top;
+          let w = c.right - c.left;
+          let h = c.bottom - c.top;
 
           // Snap rect to 0.5px grid in SCREEN space to reduce antialiasing/tearing
           const dz = camera.zoom || 1;
@@ -538,7 +537,9 @@ export function GroupContainersLayer() {
             hoveredGroupId === c.groupId ||
             hoveredGlobalGroupId === c.groupId ||
             hoveredGlobalGroupIdSecondary === c.groupId ||
-            (dragRef.current && dragRef.current.parentId === (c.groupId as unknown as NodeId) && dragRef.current.dragging);
+            (dragRef.current &&
+              dragRef.current.parentId === (c.groupId as unknown as NodeId) &&
+              dragRef.current.dragging);
           const isSelected = selectedGroupId === c.groupId;
           const showStroke = isActive || isSelected;
           return (
@@ -568,9 +569,7 @@ export function GroupContainersLayer() {
                   y={0}
                   width={w}
                   height={h}
-                  rx={14}
-                  ry={14}
-                  fill="transparent"
+                  fill="none"
                   stroke={isSelected ? 'rgba(59,130,246,1)' : 'rgba(59,130,246,0.9)'}
                   strokeWidth={1.5}
                   vectorEffect="non-scaling-stroke"
@@ -584,8 +583,6 @@ export function GroupContainersLayer() {
                 y={0}
                 width={w}
                 height={h}
-                rx={14}
-                ry={14}
                 fill="transparent"
                 style={{ pointerEvents: 'all', cursor: 'grab' }}
                 onPointerDown={handlers.onPointerDown}
@@ -603,11 +600,11 @@ export function GroupContainersLayer() {
       {/* Temporary selection container above nodes (visible when 2+ nodes are selected) */}
       {selectionBBox &&
         (() => {
-          // Apply same visual padding and snapping rules
-          let x = selectionBBox.left - PAD_WORLD;
-          let y = selectionBBox.top - PAD_WORLD;
-          let w = selectionBBox.right - selectionBBox.left + PAD_WORLD * 2;
-          let h = selectionBBox.bottom - selectionBBox.top + PAD_WORLD * 2;
+          // Snap to 0.5px grid with no visual padding for the selection container
+          let x = selectionBBox.left;
+          let y = selectionBBox.top;
+          let w = selectionBBox.right - selectionBBox.left;
+          let h = selectionBBox.bottom - selectionBBox.top;
           const dz = camera.zoom || 1;
           const round05 = (v: number) => Math.round(v * 2) / 2;
           const sx = round05(x * dz);
@@ -654,9 +651,9 @@ export function GroupContainersLayer() {
                   y={0}
                   width={w}
                   height={h}
-                  rx={14}
-                  ry={14}
-                  fill="rgba(59,130,246,0.08)"
+                  // rx={14}
+                  // ry={14}
+                  fill="none"
                   style={{ pointerEvents: 'none' }}
                 />
                 {/* Stroke */}
@@ -665,8 +662,8 @@ export function GroupContainersLayer() {
                   y={0}
                   width={w}
                   height={h}
-                  rx={14}
-                  ry={14}
+                  // rx={14}
+                  // ry={14}
                   fill="transparent"
                   stroke="rgba(59,130,246,0.9)"
                   strokeWidth={1.5}
