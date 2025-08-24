@@ -3,7 +3,7 @@
 import React, { act } from 'react';
 import ReactDOM from 'react-dom/client';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { BackgroundDots } from './BackgroundDots';
+import { BackgroundDots } from '../react/BackgroundDots';
 import { useCanvasStore } from '../state/store';
 
 async function render(ui: React.ReactElement) {

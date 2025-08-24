@@ -6,7 +6,7 @@ import {
   zoomAtPoint,
   type Camera,
   type Point,
-} from './coords';
+} from '../src/core/coords';
 
 describe('coords', () => {
   it('worldToScreen and screenToWorld roundtrip', () => {

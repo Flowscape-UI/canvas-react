@@ -3,11 +3,11 @@
 import React, { useRef } from 'react';
 import ReactDOM from 'react-dom/client';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { NodeView } from './NodeView';
-import { useCanvasNavigation } from './useCanvasNavigation';
-import { useCanvasStore } from '../state/store';
-import type { CanvasStore } from '../state/store';
-import type { Node } from '../types';
+import { NodeView } from '../src/react/NodeView';
+import { useCanvasNavigation } from '../src/react/useCanvasNavigation';
+import { useCanvasStore } from '../src/state/store';
+import type { CanvasStore } from '../src/state/store';
+import type { Node } from '../src/types';
 
 // Polyfill PointerEvent in jsdom if missing
 type PointerEventInitLike = MouseEventInit & {

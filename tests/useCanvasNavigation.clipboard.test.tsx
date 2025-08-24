@@ -3,11 +3,14 @@
 import React, { useRef, act } from 'react';
 import ReactDOM from 'react-dom/client';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useCanvasNavigation } from './useCanvasNavigation';
-import { useCanvasStore } from '../state/store';
-import type { CanvasStore } from '../state/store';
+import { useCanvasNavigation } from '../src/react/useCanvasNavigation';
+import { useCanvasStore } from '../src/state/store';
+import type { CanvasStore } from '../src/state/store';
 
-function TestHost(props: { options?: Parameters<typeof useCanvasNavigation>[1]; withInput?: boolean }) {
+function TestHost(props: {
+  options?: Parameters<typeof useCanvasNavigation>[1];
+  withInput?: boolean;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   useCanvasNavigation(ref, props.options);
   return (
@@ -108,7 +111,9 @@ describe('useCanvasNavigation: clipboard keyboard shortcuts', () => {
 
     // Seed clipboard by copying a parent+child
     useCanvasStore.getState().addNode({ id: 'p', x: 0, y: 0, width: 50, height: 30 });
-    useCanvasStore.getState().addNode({ id: 'c1', x: 5, y: 5, width: 20, height: 10, parentId: 'p' });
+    useCanvasStore
+      .getState()
+      .addNode({ id: 'c1', x: 5, y: 5, width: 20, height: 10, parentId: 'p' });
     useCanvasStore.getState().selectOnly('p');
     useCanvasStore.getState().copySelection();
 
@@ -140,11 +145,23 @@ describe('useCanvasNavigation: clipboard keyboard shortcuts', () => {
     // Stub bounding rect so screen->world is deterministic
     const originalGetRect = canvas.getBoundingClientRect.bind(canvas);
     canvas.getBoundingClientRect = () =>
-      ({ left: 50, top: 60, width: 800, height: 600, right: 850, bottom: 660, x: 50, y: 60, toJSON() {} } as DOMRect);
+      ({
+        left: 50,
+        top: 60,
+        width: 800,
+        height: 600,
+        right: 850,
+        bottom: 660,
+        x: 50,
+        y: 60,
+        toJSON() {},
+      }) as DOMRect;
 
     // Seed clipboard with a parent+child; bbox min is at (0,0)
     useCanvasStore.getState().addNode({ id: 'p', x: 0, y: 0, width: 40, height: 30 });
-    useCanvasStore.getState().addNode({ id: 'c', x: 10, y: 5, width: 10, height: 10, parentId: 'p' });
+    useCanvasStore
+      .getState()
+      .addNode({ id: 'c', x: 10, y: 5, width: 10, height: 10, parentId: 'p' });
     useCanvasStore.getState().selectOnly('p');
     useCanvasStore.getState().copySelection();
 

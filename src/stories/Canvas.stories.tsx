@@ -1,10 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import React, { useState, useRef, useEffect } from 'react';
-import { Canvas } from './Canvas';
-import { BackgroundDots } from './BackgroundDots';
-import { BackgroundCells } from './BackgroundCells';
-import { NodeView } from './NodeView';
-import { useCanvasNavigation } from './useCanvasNavigation';
+import { Canvas } from '../react/Canvas';
+import { BackgroundDots } from '../react/BackgroundDots';
+import { BackgroundCells } from '../react/BackgroundCells';
+import { NodeView } from '../react/NodeView';
+import { useCanvasNavigation } from '../react/useCanvasNavigation';
 import { cameraToCssTransform } from '../core/coords';
 import {
   useCamera,
@@ -18,10 +18,10 @@ import {
   useClipboardActions,
   useHasClipboard,
 } from '../state/store';
-import { useCanvasHelpers } from './useCanvasHelpers';
-import type { CanvasNavigationOptions } from './useCanvasNavigation';
-import type { BackgroundDotsProps } from './BackgroundDots';
-import { GroupContainersLayer } from './GroupContainersLayer';
+import { useCanvasHelpers } from '../react/useCanvasHelpers';
+import type { CanvasNavigationOptions } from '../react/useCanvasNavigation';
+import type { BackgroundDotsProps } from '../react/BackgroundDots';
+import { GroupContainersLayer } from '../react/GroupContainersLayer';
 
 type CanvasStoryArgs = Required<
   Pick<

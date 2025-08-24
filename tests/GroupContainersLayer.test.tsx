@@ -3,9 +3,9 @@
 import React, { act } from 'react';
 import ReactDOM from 'react-dom/client';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { GroupContainersLayer } from './GroupContainersLayer';
-import { useCanvasStore } from '../state/store';
-import type { Node } from '../types';
+import { GroupContainersLayer } from '../src/react/GroupContainersLayer';
+import { useCanvasStore } from '../src/state/store';
+import type { Node } from '../src/types';
 
 // Polyfill PointerEvent for jsdom if missing
 type PointerEventCtor = { new (type: string, eventInitDict?: PointerEventInit): PointerEvent };

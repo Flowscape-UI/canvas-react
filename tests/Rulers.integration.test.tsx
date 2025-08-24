@@ -3,10 +3,10 @@
 import React, { useRef, act } from 'react';
 import ReactDOM from 'react-dom/client';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Canvas } from './Canvas';
-import { useCanvasNavigation } from './useCanvasNavigation';
-import { useCanvasStore } from '../state/store';
-import type { CanvasStore } from '../state/store';
+import { Canvas } from '../src/react/Canvas';
+import { useCanvasNavigation } from '../src/react/useCanvasNavigation';
+import { useCanvasStore } from '../src/state/store';
+import type { CanvasStore } from '../src/state/store';
 
 // ---- PointerEvent polyfill (same as in Canvas.boxselect.test.tsx) ----
 type PointerEventInitLike = MouseEventInit & {
@@ -122,10 +122,8 @@ function dispatchPointer(target: EventTarget, type: string, init: PointerEventIn
 }
 
 function getCanvas(container: HTMLElement) {
-  return (
-    (container.querySelector('[data-rc-canvas]') ||
-      document.querySelector('[data-rc-canvas]')) as HTMLDivElement
-  );
+  return (container.querySelector('[data-rc-canvas]') ||
+    document.querySelector('[data-rc-canvas]')) as HTMLDivElement;
 }
 
 function getRulersRoot() {
@@ -133,9 +131,7 @@ function getRulersRoot() {
 }
 
 function queryGuides(): HTMLDivElement[] {
-  return Array.from(
-    document.querySelectorAll('[data-rc-guide]') as NodeListOf<HTMLDivElement>,
-  );
+  return Array.from(document.querySelectorAll('[data-rc-guide]') as NodeListOf<HTMLDivElement>);
 }
 
 function setGlobalClientSize(size: { width: number; height: number }) {
