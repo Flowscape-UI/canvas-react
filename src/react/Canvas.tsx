@@ -473,11 +473,9 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       >
         {background}
       </div>
-      <div style={{ position: 'relative', zIndex: 1, height: '100%' }}>
-        {showRulers ? <Rulers /> : null}
-        {children}
-      </div>
+      <div style={{ position: 'relative', zIndex: 1, height: '100%' }}>{children}</div>
       {overlay}
+      {showRulers ? <Rulers /> : null}
     </div>
   );
 });
