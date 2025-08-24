@@ -75,15 +75,13 @@ describe('GroupContainersLayer', () => {
     const getByGroup = (gid: string) =>
       Array.from(containers).find((el) => el.getAttribute('data-parent-id') === gid)!;
 
-    const PAD = 8; // at zoom=1
-
     // For G-P: bbox over P, c1, c2, g1
     const p = getByGroup('G-P');
     expect(p).toBeTruthy();
-    const leftP = Math.min(0, 120, 40, 160) - PAD;
-    const topP = Math.min(0, 20, 120, 40) - PAD;
-    const rightP = Math.max(0 + 80, 120 + 60, 40 + 50, 160 + 30) + PAD;
-    const bottomP = Math.max(0 + 40, 20 + 30, 120 + 50, 40 + 30) + PAD;
+    const leftP = Math.min(0, 120, 40, 160);
+    const topP = Math.min(0, 20, 120, 40);
+    const rightP = Math.max(0 + 80, 120 + 60, 40 + 50, 160 + 30);
+    const bottomP = Math.max(0 + 40, 20 + 30, 120 + 50, 40 + 30);
     const widthP = rightP - leftP;
     const heightP = bottomP - topP;
     expect(p.style.left).toBe(`${leftP}px`);
@@ -94,10 +92,10 @@ describe('GroupContainersLayer', () => {
     // For G-c1: bbox over c1 + g1
     const c1 = getByGroup('G-c1');
     expect(c1).toBeTruthy();
-    const leftC1 = Math.min(120, 160) - PAD;
-    const topC1 = Math.min(20, 40) - PAD;
-    const rightC1 = Math.max(120 + 60, 160 + 30) + PAD;
-    const bottomC1 = Math.max(20 + 30, 40 + 30) + PAD;
+    const leftC1 = Math.min(120, 160);
+    const topC1 = Math.min(20, 40);
+    const rightC1 = Math.max(120 + 60, 160 + 30);
+    const bottomC1 = Math.max(20 + 30, 40 + 30);
     const widthC1 = rightC1 - leftC1;
     const heightC1 = bottomC1 - topC1;
     expect(c1.style.left).toBe(`${leftC1}px`);
@@ -108,7 +106,7 @@ describe('GroupContainersLayer', () => {
     unmount();
   });
 
-  it('applies fixed 8px padding regardless of zoom (converted to world units)', async () => {
+  it('renders tight bbox regardless of zoom (no extra padding)', async () => {
     // Setup: group G-R with members R and C
     add({ id: 'R', x: 10, y: 20, width: 40, height: 20 });
     add({ id: 'C', x: 70, y: 40, width: 30, height: 30 });
@@ -121,12 +119,11 @@ describe('GroupContainersLayer', () => {
     const { container, unmount } = await render(<GroupContainersLayer />);
     const el = container.querySelector('[data-parent-id="G-R"]') as HTMLElement;
     expect(el).toBeTruthy();
-    const PAD = 8 / 2; // 4 world units
-
-    const left = Math.min(10, 70) - PAD;
-    const top = Math.min(20, 40) - PAD;
-    const right = Math.max(10 + 40, 70 + 30) + PAD;
-    const bottom = Math.max(20 + 20, 40 + 30) + PAD;
+    // Even at zoom=2, container should be tight to members (no padding)
+    const left = Math.min(10, 70);
+    const top = Math.min(20, 40);
+    const right = Math.max(10 + 40, 70 + 30);
+    const bottom = Math.max(20 + 20, 40 + 30);
     const width = right - left;
     const height = bottom - top;
     expect(el.style.left).toBe(`${left}px`);

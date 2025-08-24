@@ -35,6 +35,66 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
   const { exitInnerEdit } = useInnerEditActions();
   const showRulers = useShowRulers();
 
+  // Helper: update hovered visual group highlights for given node ids
+  const updateHoverForIds = (ids: NodeId[]) => {
+    try {
+      const st = useCanvasStore.getState();
+      const setPrimary = st.setHoveredVisualGroupId;
+      const setSecondary = st.setHoveredVisualGroupIdSecondary;
+      if (!ids || ids.length === 0) {
+        setPrimary(null);
+        setSecondary(null);
+        return;
+      }
+      const groups = Object.values(st.visualGroups);
+      if (!groups || groups.length === 0) {
+        setPrimary(null);
+        setSecondary(null);
+        return;
+      }
+      // Candidates that contain ALL ids
+      const candidates = groups.filter((vg) => ids.every((id) => vg.members.includes(id)));
+      if (candidates.length === 0) {
+        setPrimary(null);
+        setSecondary(null);
+        return;
+      }
+      let largestId: string | null = null;
+      let largestArea = -Infinity;
+      let smallestId: string | null = null;
+      let smallestArea = Infinity;
+      for (const vg of candidates) {
+        let left = Infinity,
+          top = Infinity,
+          right = -Infinity,
+          bottom = -Infinity;
+        for (const mid of vg.members) {
+          const n = st.nodes[mid as NodeId];
+          if (!n) continue;
+          left = Math.min(left, n.x);
+          top = Math.min(top, n.y);
+          right = Math.max(right, n.x + n.width);
+          bottom = Math.max(bottom, n.y + n.height);
+        }
+        if (left === Infinity) continue;
+        const area = Math.max(0, right - left) * Math.max(0, bottom - top);
+        if (area > largestArea) {
+          largestArea = area;
+          largestId = vg.id;
+        }
+        if (area < smallestArea) {
+          smallestArea = area;
+          smallestId = vg.id;
+        }
+      }
+      setPrimary(largestId);
+      const secondaryId = smallestId && smallestId !== largestId ? smallestId : null;
+      setSecondary(secondaryId);
+    } catch {
+      // ignore
+    }
+  };
+
   const [boxStart, setBoxStart] = useState<{ x: number; y: number } | null>(null);
   const [boxEnd, setBoxEnd] = useState<{ x: number; y: number } | null>(null);
   const isBoxSelecting = boxStart != null && boxEnd != null;
@@ -181,6 +241,8 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       }
       clearSelection();
       for (const id of hits) addToSelection(id);
+      // Update hovered visual group highlights based on live hits
+      updateHoverForIds(hits);
     }
     autoPanRafRef.current = requestAnimationFrame(autoPanTick);
   };
@@ -250,6 +312,8 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       // Во время drag показываем только текущее «хит» выделение (replace превью)
       clearSelection();
       for (const id of hits) addToSelection(id);
+      // Update hovered visual group highlights based on live hits
+      updateHoverForIds(hits);
       shouldMaybeDeselectRef.current = false;
       ensureAutoPan(root);
       return;
@@ -338,6 +402,14 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       initialSelectionRef.current = null;
       worldStartRef.current = null;
       stopAutoPan();
+      // Clear hover highlights when box selection ends
+      try {
+        const st2 = useCanvasStore.getState();
+        st2.setHoveredVisualGroupId(null);
+        st2.setHoveredVisualGroupIdSecondary(null);
+      } catch {
+        // ignore
+      }
       const target = e.currentTarget as Element;
       const pid = activePointerIdRef.current;
       if (pid != null && target && 'releasePointerCapture' in target) {
@@ -365,6 +437,14 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
         try {
           const { selectVisualGroup } = useCanvasStore.getState();
           selectVisualGroup(null);
+        } catch {
+          // ignore
+        }
+        // Also clear any hovered visual group highlights
+        try {
+          const st3 = useCanvasStore.getState();
+          st3.setHoveredVisualGroupId(null);
+          st3.setHoveredVisualGroupIdSecondary(null);
         } catch {
           // ignore
         }
