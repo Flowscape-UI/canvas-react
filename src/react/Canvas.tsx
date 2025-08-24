@@ -86,8 +86,8 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     const onWindowKeyDown = (e: KeyboardEvent) => {
       if (isTextInput(e.target as Element)) return;
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
-        const keyLower = e.key.toLowerCase();
-        if (keyLower === 'g') {
+        const code = e.code;
+        if (code === 'KeyG') {
           const { selected, createVisualGroupFromSelection } = useCanvasStore.getState();
           if (Object.keys(selected).length >= 2) {
             e.preventDefault();
@@ -385,16 +385,30 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
 
   const onKeyDown: React.KeyboardEventHandler<HTMLDivElement> = (e) => {
     // Undo/Redo shortcuts: Ctrl/Cmd+Z, Shift+Ctrl/Cmd+Z
-    if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+    if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') {
       e.preventDefault();
       if (e.shiftKey) redo();
       else undo();
     }
 
+    // Escape: exit inner-edit if active; otherwise clear node and visual group selections
+    if (e.code === 'Escape') {
+      const { innerEditNodeId, selectVisualGroup } = useCanvasStore.getState();
+      if (innerEditNodeId) {
+        e.preventDefault();
+        exitInnerEdit();
+        return;
+      }
+      e.preventDefault();
+      clearSelection();
+      selectVisualGroup(null);
+      return;
+    }
+
     // Grouping: Ctrl/Cmd + G (works even if useCanvasNavigation hook isn't attached)
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
-      const keyLower = e.key.toLowerCase();
-      if (keyLower === 'g') {
+      const code = e.code;
+      if (code === 'KeyG') {
         const { selected, createVisualGroupFromSelection } = useCanvasStore.getState();
         if (Object.keys(selected).length >= 2) {
           e.preventDefault();

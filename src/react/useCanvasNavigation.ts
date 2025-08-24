@@ -377,7 +377,7 @@ export function useCanvasNavigation(
       if (isTextInput(e.target as Element)) return;
 
       // Escape exits inner-edit mode if active
-      if (e.key === 'Escape') {
+      if (e.code === 'Escape') {
         const { innerEditNodeId, exitInnerEdit } = useCanvasStore.getState();
         if (innerEditNodeId) {
           e.preventDefault();
@@ -396,25 +396,21 @@ export function useCanvasNavigation(
         let step = opts.keyboardPanStep;
         if (slow) step = opts.keyboardPanSlowStep;
 
-        switch (e.key) {
+        switch (e.code) {
           case 'ArrowLeft':
-          case 'a':
-          case 'A':
+          case 'KeyA':
             dxScreen = step;
             break;
           case 'ArrowRight':
-          case 'd':
-          case 'D':
+          case 'KeyD':
             dxScreen = -step;
             break;
           case 'ArrowUp':
-          case 'w':
-          case 'W':
+          case 'KeyW':
             dyScreen = step;
             break;
           case 'ArrowDown':
-          case 's':
-          case 'S':
+          case 'KeyS':
             dyScreen = -step;
             break;
         }
@@ -426,10 +422,10 @@ export function useCanvasNavigation(
         }
       }
 
-      // Clipboard: Ctrl/Cmd + C / X / V
+      // Clipboard and grouping: Ctrl/Cmd + [G/C/X/V]
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
-        const keyLower = e.key.toLowerCase();
-        if (keyLower === 'g') {
+        const code = e.code;
+        if (code === 'KeyG') {
           const { selected, createVisualGroupFromSelection } = useCanvasStore.getState();
           if (Object.keys(selected).length >= 2) {
             e.preventDefault();
@@ -437,21 +433,21 @@ export function useCanvasNavigation(
             return;
           }
         }
-        if (keyLower === 'c') {
+        if (code === 'KeyC') {
           const { selected, copySelection } = useCanvasStore.getState();
           if (Object.keys(selected).length > 0) {
             e.preventDefault();
             copySelection();
             return;
           }
-        } else if (keyLower === 'x') {
+        } else if (code === 'KeyX') {
           const { selected, cutSelection } = useCanvasStore.getState();
           if (Object.keys(selected).length > 0) {
             e.preventDefault();
             cutSelection();
             return;
           }
-        } else if (keyLower === 'v') {
+        } else if (code === 'KeyV') {
           e.preventDefault();
           const { camera, pasteClipboard } = useCanvasStore.getState();
           const currentEl = ref.current;
@@ -469,8 +465,8 @@ export function useCanvasNavigation(
 
       // Toggle rulers: Ctrl/Cmd + H
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
-        const keyLower = e.key.toLowerCase();
-        if (keyLower === 'h') {
+        const code = e.code;
+        if (code === 'KeyH') {
           e.preventDefault();
           const { toggleRulers } = useCanvasStore.getState();
           toggleRulers();

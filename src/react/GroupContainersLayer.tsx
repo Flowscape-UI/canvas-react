@@ -518,6 +518,14 @@ export function GroupContainersLayer() {
           let w = c.right - c.left;
           let h = c.bottom - c.top;
 
+          // Apply fixed 8px screen-space padding converted to world units
+          // This ensures a small visual gap around grouped members regardless of zoom
+          const padWorld = 8 / (camera.zoom || 1);
+          x -= padWorld;
+          y -= padWorld;
+          w += padWorld * 2;
+          h += padWorld * 2;
+
           // Snap rect to 0.5px grid in SCREEN space to reduce antialiasing/tearing
           const dz = camera.zoom || 1;
           const round05 = (v: number) => Math.round(v * 2) / 2;

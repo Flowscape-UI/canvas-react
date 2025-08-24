@@ -3,8 +3,8 @@
 import React, { act } from 'react';
 import ReactDOM from 'react-dom/client';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { BackgroundCells } from '../react/BackgroundCells';
-import { useCanvasStore } from '../state/store';
+import { BackgroundCells } from '../src/react/BackgroundCells';
+import { useCanvasStore } from '../src/state/store';
 
 async function render(ui: React.ReactElement) {
   const container = document.createElement('div');

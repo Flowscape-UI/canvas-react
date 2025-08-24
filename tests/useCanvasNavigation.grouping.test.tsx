@@ -25,9 +25,12 @@ async function render(ui: React.ReactElement) {
 }
 
 function dispatchKey(el: Element, key: string, code?: string, init?: KeyboardEventInit) {
+  // Default code for single-letter keys to layout-independent form (e.g., 'g' -> 'KeyG')
+  const resolvedCode =
+    code ?? (key.length === 1 && /[a-zA-Z]/.test(key) ? `Key${key.toUpperCase()}` : undefined);
   const ev = new KeyboardEvent('keydown', {
     key,
-    code,
+    code: resolvedCode,
     bubbles: true,
     cancelable: true,
     ...init,

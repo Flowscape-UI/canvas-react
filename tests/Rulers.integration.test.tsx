@@ -453,7 +453,12 @@ describe('Rulers: guides interactions', () => {
 
     // Undo with Ctrl+Z
     await act(async () => {
-      const e = new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true });
+      const e = new KeyboardEvent('keydown', {
+        key: 'z',
+        code: 'KeyZ',
+        ctrlKey: true,
+        bubbles: true,
+      });
       canvas.dispatchEvent(e);
     });
     st = useCanvasStore.getState();
@@ -465,6 +470,7 @@ describe('Rulers: guides interactions', () => {
     await act(async () => {
       const e = new KeyboardEvent('keydown', {
         key: 'z',
+        code: 'KeyZ',
         ctrlKey: true,
         shiftKey: true,
         bubbles: true,
@@ -597,7 +603,7 @@ describe('Rulers: guides interactions', () => {
     // Test undo - should go back to original position (100) in one step
     canvas.focus();
     await act(async () => {
-      const e = new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true });
+      const e = new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', ctrlKey: true, bubbles: true });
       canvas.dispatchEvent(e);
     });
 
