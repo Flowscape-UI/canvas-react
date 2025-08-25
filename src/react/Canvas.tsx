@@ -239,10 +239,52 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
           nRight >= worldLeft && nLeft <= worldRight && nBottom >= worldTop && nTop <= worldBottom;
         if (intersects) hits.push(n.id);
       }
-      clearSelection();
-      for (const id of hits) addToSelection(id);
-      // Update hovered visual group highlights based on live hits
-      updateHoverForIds(hits);
+      // Lasso behavior: if any hit nodes belong to a visual group,
+      // do NOT select nodes; instead, hover the most relevant group.
+      const st = useCanvasStore.getState();
+      const groups = Object.values(st.visualGroups);
+      let chosenGroupId: string | null = null;
+      if (groups.length > 0 && hits.length > 0) {
+        // Count overlaps per group (any member hit qualifies)
+        type Candidate = { id: string; hitCount: number; area: number };
+        const candidates: Candidate[] = [];
+        for (const vg of groups) {
+          let count = 0;
+          for (const hid of hits) if (vg.members.includes(hid as NodeId)) count++;
+          if (count > 0) {
+            // compute area of group bbox
+            let L = Infinity, T = Infinity, R = -Infinity, B = -Infinity;
+            for (const mid of vg.members) {
+              const n = st.nodes[mid as NodeId];
+              if (!n) continue;
+              L = Math.min(L, n.x);
+              T = Math.min(T, n.y);
+              R = Math.max(R, n.x + n.width);
+              B = Math.max(B, n.y + n.height);
+            }
+            if (L !== Infinity) candidates.push({ id: vg.id, hitCount: count, area: Math.max(0, R - L) * Math.max(0, B - T) });
+          }
+        }
+        if (candidates.length > 0) {
+          candidates.sort((a, b) => (b.hitCount - a.hitCount) || (b.area - a.area));
+          chosenGroupId = candidates[0].id;
+        }
+      }
+      if (chosenGroupId) {
+        // Clear any node selection preview and hover the group
+        clearSelection();
+        try {
+          st.setHoveredVisualGroupId(chosenGroupId);
+          st.setHoveredVisualGroupIdSecondary(null);
+        } catch {
+          // ignore
+        }
+      } else {
+        // No grouped hits: live node selection preview as before
+        clearSelection();
+        for (const id of hits) addToSelection(id);
+        updateHoverForIds(hits);
+      }
     }
     autoPanRafRef.current = requestAnimationFrame(autoPanTick);
   };
@@ -388,57 +430,47 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
           nRight >= worldLeft && nLeft <= worldRight && nBottom >= worldTop && nTop <= worldBottom;
         if (intersects) hits.push(n.id);
       }
+      // Lasso finalization: if any hit node belongs to a visual group, select that group instead of nodes
+      const st = useCanvasStore.getState();
+      const groups = Object.values(st.visualGroups);
+      let chosenGroupId: string | null = null;
+      if (groups.length > 0 && hits.length > 0) {
+        type Candidate = { id: string; hitCount: number; area: number };
+        const candidates: Candidate[] = [];
+        for (const vg of groups) {
+          let count = 0;
+          for (const hid of hits) if (vg.members.includes(hid as NodeId)) count++;
+          if (count > 0) {
+            let L = Infinity, T = Infinity, R = -Infinity, B = -Infinity;
+            for (const mid of vg.members) {
+              const n = st.nodes[mid as NodeId];
+              if (!n) continue;
+              L = Math.min(L, n.x);
+              T = Math.min(T, n.y);
+              R = Math.max(R, n.x + n.width);
+              B = Math.max(B, n.y + n.height);
+            }
+            if (L !== Infinity) candidates.push({ id: vg.id, hitCount: count, area: Math.max(0, R - L) * Math.max(0, B - T) });
+          }
+        }
+        if (candidates.length > 0) {
+          candidates.sort((a, b) => (b.hitCount - a.hitCount) || (b.area - a.area));
+          chosenGroupId = candidates[0].id;
+        }
+      }
+
       const additive = e.ctrlKey || e.metaKey;
       const snapshot = initialSelectionRef.current || {};
       clearSelection();
-      if (additive) {
-        for (const id of Object.keys(snapshot) as NodeId[]) addToSelection(id);
-      }
-      for (const id of hits) addToSelection(id);
-
-      // If selection contains nodes that all share at least one visual group,
-      // select that group's frame instead of showing node selection UI
-      try {
-        const st = useCanvasStore.getState();
-        const selectedIds = hits;
-        const groups = Object.values(st.visualGroups);
-        if (selectedIds.length > 0 && groups.length > 0) {
-          const candidates = groups.filter((vg) =>
-            selectedIds.every((id) => vg.members.includes(id as NodeId)),
-          );
-          if (candidates.length > 0) {
-            // choose the largest by area to match NodeView default behavior
-            let chosen: string | null = null;
-            let bestArea = -Infinity;
-            for (const vg of candidates) {
-              let left = Infinity,
-                top = Infinity,
-                right = -Infinity,
-                bottom = -Infinity;
-              for (const mid of vg.members) {
-                const n = st.nodes[mid as NodeId];
-                if (!n) continue;
-                left = Math.min(left, n.x);
-                top = Math.min(top, n.y);
-                right = Math.max(right, n.x + n.width);
-                bottom = Math.max(bottom, n.y + n.height);
-              }
-              if (left === Infinity) continue;
-              const area = Math.max(0, right - left) * Math.max(0, bottom - top);
-              if (area > bestArea) {
-                bestArea = area;
-                chosen = vg.id;
-              }
-            }
-            if (chosen) {
-              // Clear node selection and select the visual group instead
-              clearSelection();
-              st.selectVisualGroup(chosen);
-            }
-          }
+      if (chosenGroupId) {
+        // Select only the chosen group frame
+        st.selectVisualGroup(chosenGroupId);
+      } else {
+        // Standard node selection behavior
+        if (additive) {
+          for (const id of Object.keys(snapshot) as NodeId[]) addToSelection(id);
         }
-      } catch {
-        // ignore
+        for (const id of hits) addToSelection(id);
       }
 
       // сбрасываем состояние box-select и освобождаем захват указателя
