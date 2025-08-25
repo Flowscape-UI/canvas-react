@@ -18,8 +18,7 @@ npm i @flowscape-ui/canvas-react
 ```
 
 ## Features (MVP-0.2)
-
-- Pan/Zoom with mouse and keyboard. Default zoom bounds: 0.6–2.4 (60–240%).
+- Pan/Zoom with mouse and keyboard. Default zoom bounds: 0.5–2.4 (50–240%).
 - Nodes API (add/update/remove). Minimal `NodeView` to render arbitrary content inside nodes via `children`.
 - Visual Groups (UI-only): nodes can belong to purely visual groups that render rounded selection frames behind nodes.
 - Selection & Grouping:
@@ -30,6 +29,15 @@ npm i @flowscape-ui/canvas-react
 - Drag & History:
   - Drag nodes (single or multi-select) with coalesced history; Undo/Redo reverts/applies the whole drag as one action.
   - Edge auto‑pan when dragging or performing a box selection.
+
+- Clipboard:
+  - Ctrl/Cmd + C/X/V to Copy/Cut/Paste selection.
+  - First paste offsets nodes to avoid exact overlap; hierarchy is preserved.
+
+- Rulers & Guides:
+  - Horizontal/vertical rulers; drag from a ruler to create a guide.
+  - Hover highlights and larger hit area for easier grabbing.
+  - Delete/Backspace removes the active guide. Guide drags commit as a single undoable step.
 
 ### MVP‑0.2 UX improvements
 
@@ -247,14 +255,17 @@ If you prefer to fully control visuals:
 
 - WASD/Arrow keys to pan (Shift reduces step).
 - Mouse wheel zoom (configurable), double-click zoom.
-- Zoom bounds: 0.6–2.4.
+- Zoom bounds: 0.5–2.4.
 - Delete/Backspace: deletes all currently selected nodes.
+- Ctrl/Cmd + C: copy selection.
+- Ctrl/Cmd + X: cut selection.
+- Ctrl/Cmd + V: paste clipboard (first paste offsets; hierarchy preserved).
 - Focus behavior: the canvas automatically focuses itself on pointer down (both on nodes and empty area) so shortcuts work immediately. The root is focusable via `tabIndex` (default `0`); you can override with `<Canvas tabIndex={-1} />` to disable focus, or another value to suit your app.
 - Shortcuts are ignored when the event originates from text inputs or contenteditable elements.
 
 ## Navigation Options (Wheel & Touchpad)
 
-The hook `useCanvasNavigation(ref, options)` supports modern and legacy wheel behaviors. Default zoom bounds are 0.6–2.4 (60–240%).
+The hook `useCanvasNavigation(ref, options)` supports modern and legacy wheel behaviors. Default zoom bounds are 0.5–2.4 (50–240%).
 
 - **wheelBehavior**: `'auto' | 'zoom' | 'pan'`
   - `'auto'` (default):
@@ -347,6 +358,13 @@ const { style } = useWorldLockedTile({ size: 32, dprSnap: true });
 return <div style={{ position: 'absolute', inset: 0, backgroundImage: '...', ...style }} />;
 ```
 
+## Rulers & Guides
+
+- Drag from the top ruler to create a horizontal guide; drag from the left ruler to create a vertical guide.
+- Guides have hover highlights and a larger hit area to make selection/grab easier.
+- Press Delete/Backspace to remove the currently active guide.
+- Dragging a guide commits as a single history entry (undo/redo moves it back/forth in one step).
+
 ### Drag & History Behavior
 
 - Dragging a node starts a coalesced history batch; intermediate updates are merged.
@@ -358,7 +376,7 @@ return <div style={{ position: 'absolute', inset: 0, backgroundImage: '...', ...
 - Camera panning and zoom are transient UI state and are not recorded in history.
 - Undo/Redo do not change the camera if only camera moves occurred (no node changes).
 - When Undo/Redo re-adds or reveals nodes that are currently off-screen, the camera recenters to bring them into view. This happens at the same zoom level.
-- Default zoom bounds remain 0.6–2.4 (60–240%).
+- Default zoom bounds remain 0.5–2.4 (50–240%).
 
 Tip for demos/tests: Add a node, remove it, pan the camera away, then Undo — the view recenters on the restored node.
 

@@ -1,5 +1,4 @@
 import React, { forwardRef, useEffect, useRef, useState } from 'react';
-import { cameraToCssTransform } from '../core/coords';
 import {
   useSelectionActions,
   useHistoryActions,

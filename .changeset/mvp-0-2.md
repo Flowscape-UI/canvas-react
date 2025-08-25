@@ -12,9 +12,21 @@ Added
   - Multiple groups: preview highlights all intersected group frames and renders one combined overlay covering all selected groups.
 - Edge auto‑pan during lasso (parity with node drag).
 
+- Clipboard (Copy/Cut/Paste):
+  - Ctrl/Cmd + C/X/V keyboard shortcuts.
+  - First paste offsets nodes to avoid exact overlap; hierarchy is preserved.
+  - Store actions support programmatic copy/cut/paste.
+
+- Rulers & Guides:
+  - Drag from top/left ruler to create horizontal/vertical guides.
+  - Hover highlights and larger hit area for easier grabbing.
+  - Delete/Backspace removes the active guide.
+  - Guide drags commit as a single undoable step (clean undo/redo).
+
 Changed
 - Clicking a node that belongs to a visual group (outside inner‑edit) selects the group frame; inner node selection visuals are suppressed.
 - While inner‑edit is active, node selection/hover visuals inside the selected group are enabled and behave like ordinary nodes.
+- Default zoom bounds changed to 0.5–2.4 (50–240%).
 
 Fixed
 - Incorrect lasso preview that appeared to select inner nodes of a group instead of the group frame.
