@@ -243,16 +243,15 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       // do NOT select nodes; instead, hover the most relevant group.
       const st = useCanvasStore.getState();
       const groups = Object.values(st.visualGroups);
-      let chosenGroupId: string | null = null;
+      let primaryGroupId: string | null = null;
+      let secondaryGroupId: string | null = null;
       if (groups.length > 0 && hits.length > 0) {
-        // Count overlaps per group (any member hit qualifies)
         type Candidate = { id: string; hitCount: number; area: number };
         const candidates: Candidate[] = [];
         for (const vg of groups) {
           let count = 0;
           for (const hid of hits) if (vg.members.includes(hid as NodeId)) count++;
           if (count > 0) {
-            // compute area of group bbox
             let L = Infinity, T = Infinity, R = -Infinity, B = -Infinity;
             for (const mid of vg.members) {
               const n = st.nodes[mid as NodeId];
@@ -267,15 +266,16 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
         }
         if (candidates.length > 0) {
           candidates.sort((a, b) => (b.hitCount - a.hitCount) || (b.area - a.area));
-          chosenGroupId = candidates[0].id;
+          primaryGroupId = candidates[0]?.id || null;
+          secondaryGroupId = candidates[1]?.id || null;
         }
       }
-      if (chosenGroupId) {
+      if (primaryGroupId) {
         // Clear any node selection preview and hover the group
         clearSelection();
         try {
-          st.setHoveredVisualGroupId(chosenGroupId);
-          st.setHoveredVisualGroupIdSecondary(null);
+          st.setHoveredVisualGroupId(primaryGroupId);
+          st.setHoveredVisualGroupIdSecondary(secondaryGroupId || null);
         } catch {
           // ignore
         }
@@ -434,6 +434,7 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       const st = useCanvasStore.getState();
       const groups = Object.values(st.visualGroups);
       let chosenGroupId: string | null = null;
+      let secondGroupId: string | null = null;
       if (groups.length > 0 && hits.length > 0) {
         type Candidate = { id: string; hitCount: number; area: number };
         const candidates: Candidate[] = [];
@@ -455,7 +456,8 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
         }
         if (candidates.length > 0) {
           candidates.sort((a, b) => (b.hitCount - a.hitCount) || (b.area - a.area));
-          chosenGroupId = candidates[0].id;
+          chosenGroupId = candidates[0]?.id || null;
+          secondGroupId = candidates[1]?.id || null;
         }
       }
 
@@ -463,8 +465,23 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       const snapshot = initialSelectionRef.current || {};
       clearSelection();
       if (chosenGroupId) {
-        // Select only the chosen group frame
+        // Select the chosen group frame AND any nodes outside that group hit by the lasso
+        const vg = st.visualGroups[chosenGroupId];
+        const memberSet = new Set<NodeId>(vg ? (vg.members as NodeId[]) : []);
+        const outside = hits.filter((id) => !memberSet.has(id as NodeId));
+        if (additive) {
+          for (const id of Object.keys(snapshot) as NodeId[]) addToSelection(id);
+        }
+        for (const id of outside) addToSelection(id);
         st.selectVisualGroup(chosenGroupId);
+        // If a second group also intersects, provide secondary hover highlight for UX feedback
+        if (secondGroupId && secondGroupId !== chosenGroupId) {
+          try {
+            st.setHoveredVisualGroupIdSecondary(secondGroupId);
+          } catch {
+            // ignore
+          }
+        }
       } else {
         // Standard node selection behavior
         if (additive) {
