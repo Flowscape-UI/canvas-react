@@ -96,7 +96,7 @@
     "storybook:build": "storybook build",
     "e2e": "playwright test",
     "size": "size-limit",
-    "size:ci": "size-limit --ci",
+    "size:ci": "size-limit",
     "analyze": "rollup -c rollup.config.mjs",
     "changeset": "changeset",
     "release": "changeset publish",
