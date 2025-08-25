@@ -3,8 +3,8 @@
 import React, { act } from 'react';
 import ReactDOM from 'react-dom/client';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { BackgroundCells } from './BackgroundCells';
-import { useCanvasStore } from '../state/store';
+import { BackgroundCells } from '../src/react/BackgroundCells';
+import { useCanvasStore } from '../src/state/store';
 
 async function render(ui: React.ReactElement) {
   const container = document.createElement('div');
@@ -42,7 +42,6 @@ describe('BackgroundCells (world-locked, smooth)', () => {
   it('phase moves with pan and scales smoothly with zoom', async () => {
     const { container, unmount } = await render(<BackgroundCells size={24} />);
     const el = container.firstElementChild as HTMLDivElement;
-
 
     await act(async () => {
       useCanvasStore.getState().setCamera({ zoom: 1, offsetX: 20, offsetY: -5 });

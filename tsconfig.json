@@ -16,6 +16,6 @@
     "noEmit": false,
     "sourceMap": true
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "tests", "src/stories/Canvas.stories.tsx"],
   "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.test.tsx", "**/__tests__/**"]
 }

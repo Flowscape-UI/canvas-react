@@ -1,10 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import React, { useRef, useState } from 'react';
-import { Canvas } from './Canvas';
-import { BackgroundDots } from './BackgroundDots';
-import { BackgroundCells } from './BackgroundCells';
-import { NodeView } from './NodeView';
-import { useCanvasNavigation } from './useCanvasNavigation';
+import React, { useState, useRef, useEffect } from 'react';
+import { Canvas } from '../react/Canvas';
+import { BackgroundDots } from '../react/BackgroundDots';
+import { BackgroundCells } from '../react/BackgroundCells';
+import { NodeView } from '../react/NodeView';
+import { useCanvasNavigation } from '../react/useCanvasNavigation';
 import { cameraToCssTransform } from '../core/coords';
 import {
   useCamera,
@@ -13,10 +13,15 @@ import {
   useDeleteActions,
   useHistoryActions,
   useCanvasActions,
+  useSelectedIds,
+  useCanvasStore,
+  useClipboardActions,
+  useHasClipboard,
 } from '../state/store';
-import { useCanvasHelpers } from './useCanvasHelpers';
-import type { CanvasNavigationOptions } from './useCanvasNavigation';
-import type { BackgroundDotsProps } from './BackgroundDots';
+import { useCanvasHelpers } from '../react/useCanvasHelpers';
+import type { CanvasNavigationOptions } from '../react/useCanvasNavigation';
+import type { BackgroundDotsProps } from '../react/BackgroundDots';
+import { GroupContainersLayer } from '../react/GroupContainersLayer';
 
 type CanvasStoryArgs = Required<
   Pick<
@@ -54,6 +59,7 @@ type CanvasStoryArgs = Required<
   tabIndex: number;
   // Story toggles
   showHistoryPanel: boolean;
+  showHints: boolean;
   // Node appearance controls
   nodeUnstyled: boolean;
   nodeBorderColor: string;
@@ -85,9 +91,10 @@ const meta: Meta<typeof Playground> = {
     },
     panButton: {
       control: { type: 'radio' },
-      options: [0, 1, 2],
-      mapping: { 0: 0, 1: 1, 2: 2 },
-      description: 'Mouse button for panning (0=left, 1=middle, 2=right)',
+      options: [1, 2],
+      mapping: { 1: 1, 2: 2 },
+      description:
+        'Mouse button for panning (1=middle, 2=right). Left button is reserved for selection/box-select.',
     },
     panModifier: {
       control: { type: 'select' },
@@ -178,10 +185,11 @@ const meta: Meta<typeof Playground> = {
     canvasHeight: { control: { type: 'text' } },
     tabIndex: { control: { type: 'number', min: -1, max: 10, step: 1 } },
     showHistoryPanel: { control: 'boolean' },
+    showHints: { control: 'boolean' },
   },
   args: {
     bgVariant: 'dots',
-    panButton: 0,
+    panButton: 1,
     panModifier: 'none',
     wheelZoom: true,
     wheelModifier: 'ctrl',
@@ -212,6 +220,7 @@ const meta: Meta<typeof Playground> = {
     canvasHeight: '100vh',
     tabIndex: 0,
     showHistoryPanel: false,
+    showHints: true,
 
     // Node defaults (match NodeView defaultAppearance)
     nodeUnstyled: false,
@@ -284,6 +293,9 @@ function Controls({
   const { updateNode, removeNode } = useNodeActions();
   const { deleteSelected } = useDeleteActions();
   const nodes = useNodes();
+  const selectedIds = useSelectedIds();
+  const { copySelection, cutSelection, pasteClipboard } = useClipboardActions();
+  const hasClipboard = useHasClipboard();
   const counterRef = useRef(1);
   const [targetId, setTargetId] = useState('');
   const { addNodeAtCenter } = useCanvasHelpers(rootRef);
@@ -381,6 +393,33 @@ function Controls({
       <button type="button" onClick={removeSelectedNodes}>
         Delete Selected
       </button>
+      <span style={{ margin: '0 4px', color: '#999' }}>|</span>
+      <button
+        type="button"
+        onClick={copySelection}
+        disabled={selectedIds.length === 0}
+        title={
+          selectedIds.length === 0 ? 'Select nodes to copy' : 'Copy selected nodes (Ctrl/Cmd+C)'
+        }
+      >
+        Copy
+      </button>
+      <button
+        type="button"
+        onClick={cutSelection}
+        disabled={selectedIds.length === 0}
+        title={selectedIds.length === 0 ? 'Select nodes to cut' : 'Cut selected nodes (Ctrl/Cmd+X)'}
+      >
+        Cut
+      </button>
+      <button
+        type="button"
+        onClick={() => pasteClipboard({ x: 100, y: 100 })}
+        disabled={!hasClipboard}
+        title={!hasClipboard ? 'Clipboard is empty' : 'Paste (Ctrl/Cmd+V)'}
+      >
+        Paste
+      </button>
       <span style={{ color: '#555' }}>count: {nodes.length}</span>
       {showHistoryControls ? (
         <>
@@ -402,6 +441,12 @@ function Controls({
 
 function Playground(args: CanvasStoryArgs) {
   const ref = useRef<HTMLDivElement>(null);
+  // Expose store for E2E assertions
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as unknown as { __RC_STORE: typeof useCanvasStore }).__RC_STORE = useCanvasStore;
+    }
+  }, []);
   useCanvasNavigation(ref, {
     panButton: args.panButton,
     panModifier: args.panModifier,
@@ -456,96 +501,91 @@ function Playground(args: CanvasStoryArgs) {
           )
         }
       >
+        <GroupContainersLayer />
         <WorldLayer args={args} />
       </Canvas>
-      <div
-        style={{
-          position: 'absolute',
-          top: 8,
-          left: 8,
-          zIndex: 10,
-        }}
-      >
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 8 }}>
+      {args.showHints && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 20,
+            right: 20,
+            zIndex: 10,
+          }}
+        >
           <div
             style={{
-              padding: 8,
-              background: 'rgba(255,255,255,0.9)',
-              border: '1px solid #ddd',
-              borderRadius: 6,
-              maxWidth: 420,
-              fontSize: 12,
-              color: '#333',
-              lineHeight: 1.4,
+              display: 'flex',
+              alignItems: 'flex-end',
+              flexDirection: 'column',
+              gap: 6,
+              marginBottom: 8,
             }}
           >
-            <div style={{ fontWeight: 700, marginBottom: 4 }}>Selection tips</div>
-            <div>• Click node: select only</div>
-            <div>• Ctrl/Cmd + Click: toggle in selection</div>
-            <div>• Click empty area (no drag): clear selection</div>
-          </div>
-          <div
-            style={{
-              padding: 8,
-              background: 'rgba(255,255,255,0.9)',
-              border: '1px solid #ddd',
-              borderRadius: 6,
-              maxWidth: 420,
-              fontSize: 12,
-              color: '#333',
-              lineHeight: 1.4,
-            }}
-          >
-            <div style={{ fontWeight: 700, marginBottom: 4 }}>Keyboard & focus</div>
-            <div>• Press Delete/Backspace to remove selected nodes</div>
-            <div>• Canvas auto-focuses on pointer interactions</div>
-            <div>• To disable auto-focus, set Canvas tabIndex to -1 (see Controls)</div>
-          </div>
-          <div
-            style={{
-              padding: 8,
-              background: 'rgba(255,255,255,0.9)',
-              border: '1px solid #ddd',
-              borderRadius: 6,
-              maxWidth: 420,
-              fontSize: 12,
-              color: '#333',
-              lineHeight: 1.4,
-            }}
-          >
-            <div style={{ fontWeight: 700, marginBottom: 4 }}>Wheel & Zoom</div>
-            <div>• Auto mode: wheel pans vertically; Shift+wheel pans horizontally</div>
-            <div>• Ctrl+wheel zooms (mouse & touchpad pinch)</div>
-            <div>• Default zoom bounds: 60–240% (0.6–2.4)</div>
-          </div>
-          {args.showHistoryPanel ? (
             <div
               style={{
-                padding: 8,
-                background: 'rgba(255,255,255,0.9)',
+                padding: 6,
+                background: 'rgba(255,255,255,0.95)',
                 border: '1px solid #ddd',
-                borderRadius: 6,
-                maxWidth: 420,
-                fontSize: 12,
+                borderRadius: 4,
+                fontSize: 11,
                 color: '#333',
-                lineHeight: 1.4,
+                lineHeight: 1.3,
+                maxWidth: 320,
               }}
             >
-              <div style={{ fontWeight: 700, marginBottom: 4 }}>History & Camera</div>
-              <div>• Camera pans are not recorded in history</div>
-              <div>• Undo/Redo of camera-only changes are no-ops</div>
-              <div>
-                • When nodes are re-added by Undo/Redo and are off-screen, the camera recenters
-              </div>
-              <div>
-                • Try: add a node, remove it, Pan Away, then Undo — view recenters on the restored
-                node
-              </div>
+              <div style={{ fontWeight: 700, marginBottom: 3 }}>Selection</div>
+              <div>• Click: select • Ctrl+Click: toggle • Drag empty: box-select</div>
             </div>
-          ) : null}
+            <div
+              style={{
+                padding: 6,
+                background: 'rgba(255,255,255,0.95)',
+                border: '1px solid #ddd',
+                borderRadius: 4,
+                fontSize: 11,
+                color: '#333',
+                lineHeight: 1.3,
+              }}
+            >
+              <div style={{ fontWeight: 700, marginBottom: 3 }}>Navigation</div>
+              <div>• Wheel: pan • Shift+Wheel: pan horizontal • Ctrl+Wheel: zoom</div>
+            </div>
+            <div
+              style={{
+                padding: 6,
+                background: 'rgba(255,255,255,0.95)',
+                border: '1px solid #ddd',
+                borderRadius: 4,
+                fontSize: 11,
+                color: '#333',
+                lineHeight: 1.3,
+              }}
+            >
+              <div style={{ fontWeight: 700, marginBottom: 3 }}>Grouping</div>
+              <div>• Press Ctrl/Cmd+G to group selected nodes</div>
+              <div>• Dashed rectangles show groups with invisible hit areas for drag/drop</div>
+            </div>
+            {args.showHistoryPanel ? (
+              <div
+                style={{
+                  padding: 6,
+                  background: 'rgba(255,255,255,0.95)',
+                  border: '1px solid #ddd',
+                  borderRadius: 4,
+                  fontSize: 11,
+                  color: '#333',
+                  lineHeight: 1.3,
+                }}
+              >
+                <div style={{ fontWeight: 700, marginBottom: 3 }}>History</div>
+                <div>• Camera pans not recorded • Undo/Redo recenters off-screen nodes</div>
+              </div>
+            ) : null}
+          </div>
+          <Controls rootRef={ref} showHistoryControls={args.showHistoryPanel} />
         </div>
-        <Controls rootRef={ref} showHistoryControls={args.showHistoryPanel} />
-      </div>
+      )}
     </div>
   );
 }
@@ -563,10 +603,14 @@ export const Basic: Story = {
   render: (args) => <Playground {...args} />,
 };
 
-export const HistoryAndCamera: Story = {
-  name: 'History & Camera',
-  args: {
-    showHistoryPanel: true,
-  },
-  render: (args) => <Playground {...args} />,
-};
+// export const HistoryAndCamera: Story = {
+//   name: 'History & Camera',
+//   args: {
+//     showHistoryPanel: true,
+//     mousePanScale: 15,
+//     mouseZoomSensitivityIn: 0.03,
+//     mouseZoomSensitivityOut: 0.03,
+//     panButton: 2,
+//   },
+//   render: (args) => <Playground {...args} />,
+// };

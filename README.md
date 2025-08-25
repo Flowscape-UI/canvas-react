@@ -17,18 +17,46 @@ bun add @flowscape-ui/canvas-react
 npm i @flowscape-ui/canvas-react
 ```
 
-## Features (MVP-0.1)
-
-- Pan/Zoom with mouse and keyboard. Default zoom bounds: 0.6–2.4 (60–240%).
+## Features (MVP-0.2)
+- Pan/Zoom with mouse and keyboard. Default zoom bounds: 0.5–2.4 (50–240%).
 - Nodes API (add/update/remove). Minimal `NodeView` to render arbitrary content inside nodes via `children`.
-- Selection:
-  - Single select: left-click on a node.
-  - Multi-select: Ctrl/Cmd + left-click toggles node in selection.
-  - Deselect: left-click on empty canvas area (a simple click without dragging).
-  - Shift is reserved for future features (e.g., range/box selection).
+- Visual Groups (UI-only): nodes can belong to purely visual groups that render rounded selection frames behind nodes.
+- Selection & Grouping:
+  - Click node: selects the node (unless group selection rules apply, see below).
+  - Ctrl/Cmd + Click: toggles a node in the selection set.
+  - Empty click: clears selection.
+  - Ctrl/Cmd + G: create a visual group from the current selection (2+ nodes).
 - Drag & History:
-  - Drag nodes (single or multi-select) without panning the canvas thanks to hit-testing.
-  - Dragging batches updates into a single history entry; Undo/Redo reverts/applies the whole drag as one action.
+  - Drag nodes (single or multi-select) with coalesced history; Undo/Redo reverts/applies the whole drag as one action.
+  - Edge auto‑pan when dragging or performing a box selection.
+
+- Clipboard:
+  - Ctrl/Cmd + C/X/V to Copy/Cut/Paste selection.
+  - First paste offsets nodes to avoid exact overlap; hierarchy is preserved.
+
+- Rulers & Guides:
+  - Horizontal/vertical rulers; drag from a ruler to create a guide.
+  - Hover highlights and larger hit area for easier grabbing.
+  - Delete/Backspace removes the active guide. Guide drags commit as a single undoable step.
+
+### MVP‑0.2 UX improvements
+
+#### Inner‑edit mode (double‑click)
+- Double‑click on a node inside a group enters a persistent inner‑edit mode for that node.
+- While inner‑edit is active:
+  - Nodes inside the selected group behave like ordinary nodes (their own selection/hover UI is shown).
+  - You can select and move individual nodes inside the group; the mode persists until you click on empty canvas.
+
+#### Group selection vs node selection
+- Outside inner‑edit: clicking a node that belongs to a visual group selects the group frame (nodes do not show individual selected UI).
+- Inside inner‑edit: nodes in the selected group show regular selection/hover/drag behavior.
+
+#### Box selection (lasso) preview and drop
+- When the box touches a group, the preview does not highlight inner nodes; instead it highlights the group frame.
+- Group + node: preview shows the group frame plus any outside nodes hit by the lasso, and renders one combined overlay frame covering the union of the group and those nodes. Drop selects exactly that.
+- Multiple groups: preview highlights all intersected groups and renders one combined overlay frame covering all of them. Drop selects the primary group frame (secondary remains visually highlighted). Node‑level preview inside groups is suppressed.
+
+These rules make the preview during drag match the final selection after mouse up.
 
 ### Example: Basic Canvas with Navigation and Node Views
 
@@ -44,7 +72,7 @@ import { useRef, useEffect } from 'react';
 
 export default function Example() {
   const ref = useRef<HTMLDivElement | null>(null);
-  useCanvasNavigation(ref, { panButton: 0 });
+  useCanvasNavigation(ref, { panButton: 1 }); // pan with middle button (or 2 for right)
   const nodes = useNodes();
   const { addNode } = useNodeActions();
 
@@ -221,20 +249,23 @@ If you prefer to fully control visuals:
 - Click on a node: it becomes the only selected node.
 - Ctrl/Cmd + Click: toggles the clicked node in the selection set.
 - Click on empty space (no mouse movement): clears selection.
-- Dragging on empty space pans the canvas and does not change selection.
+- Left-drag on empty space performs box selection. Panning uses the middle (button 1) or right (button 2) mouse button.
 
 ### Keyboard & Shortcuts
 
 - WASD/Arrow keys to pan (Shift reduces step).
 - Mouse wheel zoom (configurable), double-click zoom.
-- Zoom bounds: 0.6–2.4.
+- Zoom bounds: 0.5–2.4.
 - Delete/Backspace: deletes all currently selected nodes.
+- Ctrl/Cmd + C: copy selection.
+- Ctrl/Cmd + X: cut selection.
+- Ctrl/Cmd + V: paste clipboard (first paste offsets; hierarchy preserved).
 - Focus behavior: the canvas automatically focuses itself on pointer down (both on nodes and empty area) so shortcuts work immediately. The root is focusable via `tabIndex` (default `0`); you can override with `<Canvas tabIndex={-1} />` to disable focus, or another value to suit your app.
 - Shortcuts are ignored when the event originates from text inputs or contenteditable elements.
 
 ## Navigation Options (Wheel & Touchpad)
 
-The hook `useCanvasNavigation(ref, options)` supports modern and legacy wheel behaviors. Default zoom bounds are 0.6–2.4 (60–240%).
+The hook `useCanvasNavigation(ref, options)` supports modern and legacy wheel behaviors. Default zoom bounds are 0.5–2.4 (50–240%).
 
 - **wheelBehavior**: `'auto' | 'zoom' | 'pan'`
   - `'auto'` (default):
@@ -266,7 +297,7 @@ import { useRef } from 'react';
 export default function Example() {
   const ref = useRef<HTMLDivElement | null>(null);
   useCanvasNavigation(ref, {
-    panButton: 0,
+    panButton: 1,
     panModifier: 'none',
     wheelZoom: true,
     wheelModifier: 'ctrl',
@@ -327,6 +358,13 @@ const { style } = useWorldLockedTile({ size: 32, dprSnap: true });
 return <div style={{ position: 'absolute', inset: 0, backgroundImage: '...', ...style }} />;
 ```
 
+## Rulers & Guides
+
+- Drag from the top ruler to create a horizontal guide; drag from the left ruler to create a vertical guide.
+- Guides have hover highlights and a larger hit area to make selection/grab easier.
+- Press Delete/Backspace to remove the currently active guide.
+- Dragging a guide commits as a single history entry (undo/redo moves it back/forth in one step).
+
 ### Drag & History Behavior
 
 - Dragging a node starts a coalesced history batch; intermediate updates are merged.
@@ -338,7 +376,7 @@ return <div style={{ position: 'absolute', inset: 0, backgroundImage: '...', ...
 - Camera panning and zoom are transient UI state and are not recorded in history.
 - Undo/Redo do not change the camera if only camera moves occurred (no node changes).
 - When Undo/Redo re-adds or reveals nodes that are currently off-screen, the camera recenters to bring them into view. This happens at the same zoom level.
-- Default zoom bounds remain 0.6–2.4 (60–240%).
+- Default zoom bounds remain 0.5–2.4 (50–240%).
 
 Tip for demos/tests: Add a node, remove it, pan the camera away, then Undo — the view recenters on the restored node.
 

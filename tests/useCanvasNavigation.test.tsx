@@ -3,8 +3,8 @@
 import React, { useRef, act } from 'react';
 import ReactDOM from 'react-dom/client';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useCanvasNavigation } from './useCanvasNavigation';
-import { useCanvasStore } from '../state/store';
+import { useCanvasNavigation } from '../src/react/useCanvasNavigation';
+import { useCanvasStore } from '../src/state/store';
 
 function TestHost(props: {
   options?: Parameters<typeof useCanvasNavigation>[1];
@@ -38,9 +38,12 @@ async function render(ui: React.ReactElement) {
 }
 
 function dispatchKey(el: Element, key: string, code?: string, init?: KeyboardEventInit) {
+  // Default to layout-independent code for letter keys, e.g. 'a' -> 'KeyA'
+  const resolvedCode =
+    code ?? (key.length === 1 && /[a-zA-Z]/.test(key) ? `Key${key.toUpperCase()}` : undefined);
   const ev = new KeyboardEvent('keydown', {
     key,
-    code,
+    code: resolvedCode,
     bubbles: true,
     cancelable: true,
     ...init,

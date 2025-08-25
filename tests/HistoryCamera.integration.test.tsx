@@ -3,15 +3,15 @@
 import React, { useRef, act } from 'react';
 import ReactDOM from 'react-dom/client';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useCanvasNavigation } from './useCanvasNavigation';
-import { useCanvasStore } from '../state/store';
-import type { CanvasStore } from '../state/store';
+import { useCanvasNavigation } from '../src/react/useCanvasNavigation';
+import { useCanvasStore } from '../src/state/store';
+import type { CanvasStore } from '../src/state/store';
 
 function TestHost() {
   const ref = useRef<HTMLDivElement>(null);
   // Mount navigation to simulate a real canvas host; disable zoom shortcuts to avoid warnings/noise
   useCanvasNavigation(ref, {
-    panButton: 0,
+    panButton: 1,
     panModifier: 'none',
     wheelZoom: false,
     doubleClickZoom: false,
@@ -60,7 +60,9 @@ describe('React integration: undo re-add recenters camera when node is off-scree
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 600 });
     // Some React DOM codepaths check global Window constructor; provide a fallback in jsdom
     if (!(globalThis as unknown as { Window?: unknown }).Window) {
-      (globalThis as unknown as { Window: unknown }).Window = (window as unknown as { constructor: unknown }).constructor;
+      (globalThis as unknown as { Window: unknown }).Window = (
+        window as unknown as { constructor: unknown }
+      ).constructor;
     }
   });
 
