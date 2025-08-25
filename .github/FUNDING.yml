@@ -1,1 +1,9 @@
-buy_me_a_coffee: flowscape
+buy_me_a_coffee:
+  type: github
+  username: flowscape
+  project: flowscape
+  custom:
+    url: https://www.buymeacoffee.com/flowscape
+    image: https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png
+    width: 217
+    height: 60
