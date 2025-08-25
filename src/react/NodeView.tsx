@@ -44,7 +44,7 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
   ref,
 ) {
   const isSelected = useIsSelected(node.id);
-  const { selectOnly, toggleInSelection } = useSelectionActions();
+  const { selectOnly, toggleInSelection, clearSelection } = useSelectionActions();
   const { moveSelectedBy } = useDndActions();
   const camera = useCamera();
   const { panBy } = useCanvasActions();
@@ -126,6 +126,15 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
     fontWeight: 600,
   };
 
+  // Whether this node belongs to any visual group
+  const nodeIsInAnyVisualGroup = useCanvasStore((s) => {
+    const groups = Object.values(s.visualGroups);
+    for (let i = 0; i < groups.length; i++) {
+      if (groups[i].members.includes(node.id as NodeId)) return true;
+    }
+    return false;
+  });
+
   const onDoubleClick: React.MouseEventHandler<HTMLDivElement> = (e) => {
     if (skipNextDoubleClickRef.current) {
       skipNextDoubleClickRef.current = false;
@@ -184,6 +193,7 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
   const A = { ...defaultAppearance, ...(appearance ?? {}) } as NodeAppearance;
   const hasCustomChildren = children != null;
   const contentLabel = 'New Node';
+  const showSelectedUi = isSelected && !nodeIsInAnyVisualGroup;
   // Auto-pan bookkeeping
   const canvasElRef = useRef<HTMLElement | null>(null);
   const autoRafRef = useRef<number | null>(null);
@@ -313,6 +323,42 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
     // Record modifier state at down time
     ctrlMetaAtDownRef.current = !!(e.ctrlKey || e.metaKey);
 
+    // If Ctrl/Cmd at down on a node that belongs to a visual group,
+    // select that group's frame instead of toggling node selection
+    if (ctrlMetaAtDownRef.current && nodeIsInAnyVisualGroup) {
+      try {
+        const st2 = useCanvasStore.getState();
+        const groups = Object.values(st2.visualGroups);
+        let chosenId: string | null = null;
+        let bestArea = -Infinity;
+        for (const vg of groups) {
+          if (!vg.members.includes(node.id as NodeId)) continue;
+          let left = Infinity,
+            top = Infinity,
+            right = -Infinity,
+            bottom = -Infinity;
+          for (const mid of vg.members) {
+            const n = st2.nodes[mid as NodeId];
+            if (!n) continue;
+            left = Math.min(left, n.x);
+            top = Math.min(top, n.y);
+            right = Math.max(right, n.x + n.width);
+            bottom = Math.max(bottom, n.y + n.height);
+          }
+          if (left === Infinity) continue;
+          const area = Math.max(0, right - left) * Math.max(0, bottom - top);
+          if (area > bestArea) {
+            bestArea = area;
+            chosenId = vg.id;
+          }
+        }
+        clearSelection();
+        st2.selectVisualGroup(chosenId);
+      } catch {
+        // ignore
+      }
+    }
+
     // Decide potential drag scope honoring double-click mode
     if (!ctrlMetaAtDownRef.current) {
       const mode = dragScopeModeRef.current;
@@ -382,7 +428,8 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
     }
 
     // Multi-select toggle remains immediate when Ctrl/Cmd is pressed
-    if (ctrlMetaAtDownRef.current) {
+    // except for nodes that belong to visual groups (handled above)
+    if (ctrlMetaAtDownRef.current && !nodeIsInAnyVisualGroup) {
       toggleInSelection(node.id as NodeId);
     }
     // Stop propagation so canvas navigation doesn't start panning on node click
@@ -450,6 +497,37 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
                 useCanvasStore.getState().addToSelection(ids[i]);
               }
             }
+            // Also select the visual group frame for clarity
+            try {
+              const st3 = useCanvasStore.getState();
+              const groups = Object.values(st3.visualGroups);
+              let chosenId: string | null = null;
+              let bestArea = -Infinity;
+              for (const vg of groups) {
+                if (!vg.members.includes(node.id as NodeId)) continue;
+                let left = Infinity,
+                  top = Infinity,
+                  right = -Infinity,
+                  bottom = -Infinity;
+                for (const mid of vg.members) {
+                  const n = st3.nodes[mid as NodeId];
+                  if (!n) continue;
+                  left = Math.min(left, n.x);
+                  top = Math.min(top, n.y);
+                  right = Math.max(right, n.x + n.width);
+                  bottom = Math.max(bottom, n.y + n.height);
+                }
+                if (left === Infinity) continue;
+                const area = Math.max(0, right - left) * Math.max(0, bottom - top);
+                if (area > bestArea) {
+                  bestArea = area;
+                  chosenId = vg.id;
+                }
+              }
+              st3.selectVisualGroup(chosenId);
+            } catch {
+              // ignore
+            }
           } else {
             // Single-node drag
             selectOnly(node.id as NodeId);
@@ -498,9 +576,46 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
     } catch {
       // ignore
     }
-    // If this was a click (no drag) and no Ctrl/Cmd, select only the node per spec
-    if (!draggingRef.current && !ctrlMetaAtDownRef.current) {
-      selectOnly(node.id as NodeId);
+    // If this was a click (no drag)
+    if (!draggingRef.current) {
+      if (!ctrlMetaAtDownRef.current) {
+        // Plain click: if node belongs to a visual group, select its frame; otherwise select node
+        if (nodeIsInAnyVisualGroup) {
+          try {
+            const st2 = useCanvasStore.getState();
+            const groups = Object.values(st2.visualGroups);
+            let chosenId: string | null = null;
+            let bestArea = -Infinity;
+            for (const vg of groups) {
+              if (!vg.members.includes(node.id as NodeId)) continue;
+              let left = Infinity,
+                top = Infinity,
+                right = -Infinity,
+                bottom = -Infinity;
+              for (const mid of vg.members) {
+                const n = st2.nodes[mid as NodeId];
+                if (!n) continue;
+                left = Math.min(left, n.x);
+                top = Math.min(top, n.y);
+                right = Math.max(right, n.x + n.width);
+                bottom = Math.max(bottom, n.y + n.height);
+              }
+              if (left === Infinity) continue;
+              const area = Math.max(0, right - left) * Math.max(0, bottom - top);
+              if (area > bestArea) {
+                bestArea = area;
+                chosenId = vg.id;
+              }
+            }
+            clearSelection();
+            st2.selectVisualGroup(chosenId);
+          } catch {
+            // ignore
+          }
+        } else {
+          selectOnly(node.id as NodeId);
+        }
+      }
     }
     // No auto-grouping on drop; grouping is Ctrl/Cmd+G only
     finishDrag();
@@ -523,7 +638,7 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
         boxSizing: 'border-box',
         border: unstyled
           ? undefined
-          : `${A.borderWidth}px solid ${isSelected ? A.selectedBorderColor : A.borderColor}`,
+          : `${A.borderWidth}px solid ${showSelectedUi ? A.selectedBorderColor : A.borderColor}`,
         borderRadius: unstyled ? undefined : A.borderRadius,
         background: unstyled ? undefined : A.background,
         color: unstyled ? undefined : A.textColor,
@@ -532,7 +647,7 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
           ? undefined
           : isHovered
             ? A.hoverShadow
-            : isSelected
+            : showSelectedUi
               ? A.selectedShadow || A.shadow
               : A.shadow,
         transition: 'box-shadow 120ms ease',

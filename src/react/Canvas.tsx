@@ -396,6 +396,51 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       }
       for (const id of hits) addToSelection(id);
 
+      // If selection contains nodes that all share at least one visual group,
+      // select that group's frame instead of showing node selection UI
+      try {
+        const st = useCanvasStore.getState();
+        const selectedIds = hits;
+        const groups = Object.values(st.visualGroups);
+        if (selectedIds.length > 0 && groups.length > 0) {
+          const candidates = groups.filter((vg) =>
+            selectedIds.every((id) => vg.members.includes(id as NodeId)),
+          );
+          if (candidates.length > 0) {
+            // choose the largest by area to match NodeView default behavior
+            let chosen: string | null = null;
+            let bestArea = -Infinity;
+            for (const vg of candidates) {
+              let left = Infinity,
+                top = Infinity,
+                right = -Infinity,
+                bottom = -Infinity;
+              for (const mid of vg.members) {
+                const n = st.nodes[mid as NodeId];
+                if (!n) continue;
+                left = Math.min(left, n.x);
+                top = Math.min(top, n.y);
+                right = Math.max(right, n.x + n.width);
+                bottom = Math.max(bottom, n.y + n.height);
+              }
+              if (left === Infinity) continue;
+              const area = Math.max(0, right - left) * Math.max(0, bottom - top);
+              if (area > bestArea) {
+                bestArea = area;
+                chosen = vg.id;
+              }
+            }
+            if (chosen) {
+              // Clear node selection and select the visual group instead
+              clearSelection();
+              st.selectVisualGroup(chosen);
+            }
+          }
+        }
+      } catch {
+        // ignore
+      }
+
       // сбрасываем состояние box-select и освобождаем захват указателя
       setBoxStart(null);
       setBoxEnd(null);
