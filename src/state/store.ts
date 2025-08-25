@@ -719,16 +719,23 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
       // Start from current selection and optionally scope to inner-edit subtree
       let selIds = Object.keys(s.selected) as NodeId[];
       if (s.innerEditNodeId) {
-        const scopeRoot = s.innerEditNodeId;
-        const isWithinScope = (id: NodeId): boolean => {
-          let cur: NodeId | null | undefined = id;
-          while (cur != null) {
-            if (cur === scopeRoot) return true;
-            cur = s.nodes[cur]?.parentId ?? null;
-          }
-          return false;
-        };
-        selIds = selIds.filter(isWithinScope);
+        // If a visual group is selected while in inner-edit, scope movement to that group's members
+        const gid = s.selectedVisualGroupId;
+        if (gid && s.visualGroups[gid]) {
+          const members = new Set<NodeId>(s.visualGroups[gid].members as NodeId[]);
+          selIds = selIds.filter((id) => members.has(id));
+        } else {
+          const scopeRoot = s.innerEditNodeId;
+          const isWithinScope = (id: NodeId): boolean => {
+            let cur: NodeId | null | undefined = id;
+            while (cur != null) {
+              if (cur === scopeRoot) return true;
+              cur = s.nodes[cur]?.parentId ?? null;
+            }
+            return false;
+          };
+          selIds = selIds.filter(isWithinScope);
+        }
       }
       if (selIds.length === 0) return {} as Partial<CanvasStore> as CanvasStore;
       // Build children map to collect all descendants

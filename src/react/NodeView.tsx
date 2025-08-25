@@ -9,6 +9,7 @@ import {
   useHistoryActions,
   useCanvasStore,
   useInnerEditActions,
+  useInnerEdit,
 } from '../state/store';
 
 type NodeAppearance = {
@@ -83,11 +84,12 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
   // When true, this gesture should drag only this node regardless of persistent mode
   const forceNodeDragGestureRef = useRef(false);
 
-  // Reset drag-scope mode when user clicks outside the stored group context
+  // Reset drag-scope mode when user clicks outside the stored group context (only for groupLocal)
   useEffect(() => {
     const onDocPointerDown = (ev: PointerEvent) => {
       const mode = dragScopeModeRef.current;
-      if (mode === 'default') return;
+      // Only manage outside-click reset for the temporary groupLocal highlight mode
+      if (mode !== 'groupLocal') return;
       // Determine clicked node id, if any
       const target = ev.target as Element | null;
       const nodeEl = target?.closest?.('[data-rc-nodeid]') as HTMLElement | null;
@@ -140,51 +142,52 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
       skipNextDoubleClickRef.current = false;
       return;
     }
-    // Toggle drag scope for this node with double-click. Left button only.
+    // Enter inner-edit mode for this node (persistent until empty-area click). Left button only.
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
-    const mode = dragScopeModeRef.current;
-    if (mode === 'groupLocal') {
-      // Switch to node-only: enter inner-edit so drags are scoped to this node subtree
-      dragScopeModeRef.current = 'node';
-      enterInnerEdit(node.id);
-    } else {
-      // Switch to smallest containing visual group: exit inner-edit if any
-      dragScopeModeRef.current = 'groupLocal';
-      exitInnerEdit();
-      // Compute and store the SMALLEST containing visual group for this node as context
-      try {
-        const st = useCanvasStore.getState();
-        const groups = Object.values(st.visualGroups);
-        let smallest: NodeId[] | null = null;
-        let bestArea = Infinity;
-        for (const vg of groups) {
-          if (!vg.members.includes(node.id as NodeId)) continue;
-          let left = Infinity,
-            top = Infinity,
-            right = -Infinity,
-            bottom = -Infinity;
-          for (const mid of vg.members) {
-            const n = st.nodes[mid as NodeId];
-            if (!n) continue;
-            left = Math.min(left, n.x);
-            top = Math.min(top, n.y);
-            right = Math.max(right, n.x + n.width);
-            bottom = Math.max(bottom, n.y + n.height);
-          }
-          if (left === Infinity) continue;
-          const area = Math.max(0, right - left) * Math.max(0, bottom - top);
-          if (area < bestArea) {
-            bestArea = area;
-            smallest = vg.members.slice() as NodeId[];
-          }
-        }
-        dragScopeContextGroupMembersRef.current = smallest;
-      } catch {
-        // ignore
-      }
+
+    // Persistently scope drags to this node subtree
+    dragScopeModeRef.current = 'node';
+    enterInnerEdit(node.id);
+    // Select the node so it behaves like an ordinary selected node inside the group
+    try {
+      selectOnly(node.id as NodeId);
+    } catch {
+      // ignore
     }
+    // Also select the largest containing visual group for frame highlight
+    try {
+      const st = useCanvasStore.getState();
+      const groups = Object.values(st.visualGroups);
+      let chosenId: string | null = null;
+      let bestArea = -Infinity;
+      for (const vg of groups) {
+        if (!vg.members.includes(node.id as NodeId)) continue;
+        let left = Infinity,
+          top = Infinity,
+          right = -Infinity,
+          bottom = -Infinity;
+        for (const mid of vg.members) {
+          const n = st.nodes[mid as NodeId];
+          if (!n) continue;
+          left = Math.min(left, n.x);
+          top = Math.min(top, n.y);
+          right = Math.max(right, n.x + n.width);
+          bottom = Math.max(bottom, n.y + n.height);
+        }
+        if (left === Infinity) continue;
+        const area = Math.max(0, right - left) * Math.max(0, bottom - top);
+        if (area > bestArea) {
+          bestArea = area;
+          chosenId = vg.id;
+        }
+      }
+      st.selectVisualGroup(chosenId);
+    } catch {
+      // ignore
+    }
+
     // Reset double-click counters to avoid accidental pre-toggle on subsequent pointerdowns
     clickCountRef.current = 0;
     lastDownTsRef.current = 0;
@@ -193,7 +196,28 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
   const A = { ...defaultAppearance, ...(appearance ?? {}) } as NodeAppearance;
   const hasCustomChildren = children != null;
   const contentLabel = 'New Node';
-  const showSelectedUi = isSelected && !nodeIsInAnyVisualGroup;
+  const innerEditId = useInnerEdit();
+  const selectedGroupId = useCanvasStore((s) => s.selectedVisualGroupId);
+  const nodeInSelectedGroup = useCanvasStore((s) => {
+    const gid = s.selectedVisualGroupId;
+    if (!gid) return false;
+    const vg = s.visualGroups[gid];
+    return vg ? vg.members.includes(node.id as NodeId) : false;
+  });
+  const innerEditActive = Boolean(innerEditId);
+  // Visual rules:
+  // - Default: grouped nodes do NOT show selection UI
+  // - Inner-edit: nodes in the selected group behave like ordinary nodes (show selection/hover)
+  // - The double-clicked node is NOT forced to look selected; selection drives visuals
+  const showSelectedUi =
+    (innerEditActive && nodeInSelectedGroup && isSelected) || (!nodeIsInAnyVisualGroup && isSelected);
+  // When inner-edit ends (via empty-area click in Canvas), return to default drag scope
+  useEffect(() => {
+    if (!innerEditId) {
+      dragScopeModeRef.current = 'default';
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [innerEditId]);
   // Auto-pan bookkeeping
   const canvasElRef = useRef<HTMLElement | null>(null);
   const autoRafRef = useRef<number | null>(null);
@@ -313,19 +337,23 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
       }
       return false;
     };
-    const clickedInside = innerEditId ? isWithinScope(node.id as NodeId) : false;
+    const clickedInside = innerEditId
+      ? isWithinScope(node.id as NodeId) || (selectedGroupId != null && nodeInSelectedGroup)
+      : false;
     clickedInsideInnerEditRef.current = clickedInside;
-    if (innerEditId && !clickedInside) {
-      // Clicked outside inner-edit -> leave it
-      exitInnerEdit();
-    }
+    // Do NOT exit inner-edit on clicking another node; inner-edit persists until empty area click
 
     // Record modifier state at down time
     ctrlMetaAtDownRef.current = !!(e.ctrlKey || e.metaKey);
 
     // If Ctrl/Cmd at down on a node that belongs to a visual group,
-    // select that group's frame instead of toggling node selection
-    if (ctrlMetaAtDownRef.current && nodeIsInAnyVisualGroup) {
+    // select that group's frame instead of toggling node selection,
+    // EXCEPT when inner-edit is active and the node belongs to the selected group
+    if (
+      ctrlMetaAtDownRef.current &&
+      nodeIsInAnyVisualGroup &&
+      !(innerEditActive && nodeInSelectedGroup)
+    ) {
       try {
         const st2 = useCanvasStore.getState();
         const groups = Object.values(st2.visualGroups);
@@ -362,7 +390,7 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
     // Decide potential drag scope honoring double-click mode
     if (!ctrlMetaAtDownRef.current) {
       const mode = dragScopeModeRef.current;
-      const nodeScopeActive = (mode === 'node' && !!innerEditId) || clickedInside;
+      const nodeScopeActive = (mode === 'node' && !!innerEditId) || clickedInside || (innerEditActive && nodeInSelectedGroup);
       if (nodeScopeActive) {
         // Explicit node scope while inner-edit active, or clicked inside inner-edit -> single-node drag
         dragGroupMembersRef.current = null;
@@ -427,9 +455,12 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
       dragGroupMembersRef.current = null;
     }
 
-    // Multi-select toggle remains immediate when Ctrl/Cmd is pressed
-    // except for nodes that belong to visual groups (handled above)
-    if (ctrlMetaAtDownRef.current && !nodeIsInAnyVisualGroup) {
+    // Multi-select toggle remains immediate when Ctrl/Cmd is pressed.
+    // While inner-edit is active inside a group, allow toggling nodes within that group.
+    if (
+      ctrlMetaAtDownRef.current &&
+      (!nodeIsInAnyVisualGroup || (innerEditActive && nodeInSelectedGroup))
+    ) {
       toggleInSelection(node.id as NodeId);
     }
     // Stop propagation so canvas navigation doesn't start panning on node click
@@ -529,7 +560,7 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
               // ignore
             }
           } else {
-            // Single-node drag
+            // Single-node drag; in inner-edit treat like normal node
             selectOnly(node.id as NodeId);
           }
         }
@@ -579,8 +610,11 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
     // If this was a click (no drag)
     if (!draggingRef.current) {
       if (!ctrlMetaAtDownRef.current) {
-        // Plain click: if node belongs to a visual group, select its frame; otherwise select node
-        if (nodeIsInAnyVisualGroup) {
+        // In inner-edit mode within the selected group, behave like a normal node
+        if (innerEditActive && nodeInSelectedGroup) {
+          selectOnly(node.id as NodeId);
+        } else if (nodeIsInAnyVisualGroup) {
+          // Outside inner-edit: clicking grouped node selects the group frame
           try {
             const st2 = useCanvasStore.getState();
             const groups = Object.values(st2.visualGroups);
