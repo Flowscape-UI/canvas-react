@@ -1,4 +1,5 @@
 import React, { forwardRef, useEffect, useRef, useState } from 'react';
+import { cameraToCssTransform } from '../core/coords';
 import {
   useSelectionActions,
   useHistoryActions,
@@ -98,6 +99,10 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
   const [boxStart, setBoxStart] = useState<{ x: number; y: number } | null>(null);
   const [boxEnd, setBoxEnd] = useState<{ x: number; y: number } | null>(null);
   const isBoxSelecting = boxStart != null && boxEnd != null;
+  // Live combined preview bbox (world coords) for [group ∪ outside nodes]
+  const [liveCombinedBBox, setLiveCombinedBBox] = useState<
+    { left: number; top: number; right: number; bottom: number } | null
+  >(null);
   const activePointerIdRef = useRef<number | null>(null);
   // Снимок выделения на момент старта прямоугольного выделения (для additive на отпускании)
   const initialSelectionRef = useRef<Record<NodeId, true> | null>(null);
@@ -271,7 +276,8 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
         }
       }
       if (primaryGroupId) {
-        // Clear any node selection preview and hover the group
+        // Clear any node selection preview, hover the group,
+        // and preview-select only nodes OUTSIDE the group
         clearSelection();
         try {
           st.setHoveredVisualGroupId(primaryGroupId);
@@ -279,11 +285,54 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
         } catch {
           // ignore
         }
+        try {
+          const vg = st.visualGroups[primaryGroupId];
+          if (vg) {
+            const memberSet = new Set<NodeId>(vg.members as NodeId[]);
+            for (const hid of hits) {
+              if (!memberSet.has(hid as NodeId)) addToSelection(hid as NodeId);
+            }
+          }
+        } catch {
+          // ignore
+        }
+        // Compute live combined bbox: [primary group bbox ∪ any outside nodes]
+        try {
+          const vg = st.visualGroups[primaryGroupId];
+          if (vg) {
+            let L = Infinity, T = Infinity, R = -Infinity, B = -Infinity;
+            for (const mid of vg.members) {
+              const n = st.nodes[mid as NodeId];
+              if (!n) continue;
+              L = Math.min(L, n.x);
+              T = Math.min(T, n.y);
+              R = Math.max(R, n.x + n.width);
+              B = Math.max(B, n.y + n.height);
+            }
+            const memberSet = new Set<NodeId>(vg.members as NodeId[]);
+            for (const hid of hits) {
+              if (memberSet.has(hid as NodeId)) continue;
+              const n = st.nodes[hid as NodeId];
+              if (!n) continue;
+              L = Math.min(L, n.x);
+              T = Math.min(T, n.y);
+              R = Math.max(R, n.x + n.width);
+              B = Math.max(B, n.y + n.height);
+            }
+            if (L !== Infinity) setLiveCombinedBBox({ left: L, top: T, right: R, bottom: B });
+            else setLiveCombinedBBox(null);
+          } else {
+            setLiveCombinedBBox(null);
+          }
+        } catch {
+          setLiveCombinedBBox(null);
+        }
       } else {
         // No grouped hits: live node selection preview as before
         clearSelection();
         for (const id of hits) addToSelection(id);
         updateHoverForIds(hits);
+        setLiveCombinedBBox(null);
       }
     }
     autoPanRafRef.current = requestAnimationFrame(autoPanTick);
@@ -317,6 +366,13 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       lastClientXRef.current = e.clientX;
       lastClientYRef.current = e.clientY;
       rootElRef.current = root;
+      // lasso not yet active
+      try {
+        const st = useCanvasStore.getState();
+        if (st.boxSelecting) st.setBoxSelecting(false);
+      } catch {
+        // ignore
+      }
     }
   };
 
@@ -351,11 +407,91 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
           nRight >= worldLeft && nLeft <= worldRight && nBottom >= worldTop && nTop <= worldBottom;
         if (intersects) hits.push(n.id);
       }
-      // Во время drag показываем только текущее «хит» выделение (replace превью)
-      clearSelection();
-      for (const id of hits) addToSelection(id);
-      // Update hovered visual group highlights based on live hits
-      updateHoverForIds(hits);
+      // Групповая логика превью — идентична финализации/автопрокрутке
+      const st = useCanvasStore.getState();
+      const groups = Object.values(st.visualGroups);
+      let primaryGroupId: string | null = null;
+      let secondaryGroupId: string | null = null;
+      if (groups.length > 0 && hits.length > 0) {
+        type Candidate = { id: string; hitCount: number; area: number };
+        const candidates: Candidate[] = [];
+        for (const vg of groups) {
+          let count = 0;
+          for (const hid of hits) if (vg.members.includes(hid as NodeId)) count++;
+          if (count > 0) {
+            let L = Infinity, T = Infinity, R = -Infinity, B = -Infinity;
+            for (const mid of vg.members) {
+              const n = st.nodes[mid as NodeId];
+              if (!n) continue;
+              L = Math.min(L, n.x);
+              T = Math.min(T, n.y);
+              R = Math.max(R, n.x + n.width);
+              B = Math.max(B, n.y + n.height);
+            }
+            if (L !== Infinity)
+              candidates.push({ id: vg.id, hitCount: count, area: Math.max(0, R - L) * Math.max(0, B - T) });
+          }
+        }
+        if (candidates.length > 0) {
+          candidates.sort((a, b) => (b.hitCount - a.hitCount) || (b.area - a.area));
+          primaryGroupId = candidates[0]?.id || null;
+          secondaryGroupId = candidates[1]?.id || null;
+        }
+      }
+      if (primaryGroupId) {
+        // preview: очистить внутренние ноды и выделить только внешние, подсветить группы
+        clearSelection();
+        try {
+          st.setHoveredVisualGroupId(primaryGroupId);
+          st.setHoveredVisualGroupIdSecondary(secondaryGroupId || null);
+        } catch {
+          // ignore
+        }
+        try {
+          const vg = st.visualGroups[primaryGroupId];
+          if (vg) {
+            const memberSet = new Set<NodeId>(vg.members as NodeId[]);
+            for (const hid of hits) if (!memberSet.has(hid as NodeId)) addToSelection(hid as NodeId);
+          }
+        } catch {
+          // ignore
+        }
+        // live combined bbox
+        try {
+          const vg = st.visualGroups[primaryGroupId];
+          if (vg) {
+            let L = Infinity, T = Infinity, R = -Infinity, B = -Infinity;
+            for (const mid of vg.members) {
+              const n = st.nodes[mid as NodeId];
+              if (!n) continue;
+              L = Math.min(L, n.x);
+              T = Math.min(T, n.y);
+              R = Math.max(R, n.x + n.width);
+              B = Math.max(B, n.y + n.height);
+            }
+            const memberSet = new Set<NodeId>(vg.members as NodeId[]);
+            for (const hid of hits) {
+              if (memberSet.has(hid as NodeId)) continue;
+              const n = st.nodes[hid as NodeId];
+              if (!n) continue;
+              L = Math.min(L, n.x);
+              T = Math.min(T, n.y);
+              R = Math.max(R, n.x + n.width);
+              B = Math.max(B, n.y + n.height);
+            }
+            if (L !== Infinity) setLiveCombinedBBox({ left: L, top: T, right: R, bottom: B });
+            else setLiveCombinedBBox(null);
+          } else setLiveCombinedBBox(null);
+        } catch {
+          setLiveCombinedBBox(null);
+        }
+      } else {
+        // default node-only preview
+        clearSelection();
+        for (const id of hits) addToSelection(id);
+        updateHoverForIds(hits);
+        setLiveCombinedBBox(null);
+      }
       shouldMaybeDeselectRef.current = false;
       ensureAutoPan(root);
       return;
@@ -398,6 +534,12 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
         lastClientXRef.current = e.clientX;
         lastClientYRef.current = e.clientY;
         ensureAutoPan(root);
+        // mark lasso active
+        try {
+          useCanvasStore.getState().setBoxSelecting(true);
+        } catch {
+          // ignore
+        }
       }
     }
   };
@@ -482,20 +624,29 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
             // ignore
           }
         }
+        setLiveCombinedBBox(null);
       } else {
         // Standard node selection behavior
         if (additive) {
           for (const id of Object.keys(snapshot) as NodeId[]) addToSelection(id);
         }
         for (const id of hits) addToSelection(id);
+        setLiveCombinedBBox(null);
       }
 
       // сбрасываем состояние box-select и освобождаем захват указателя
       setBoxStart(null);
       setBoxEnd(null);
+      setLiveCombinedBBox(null);
       initialSelectionRef.current = null;
       worldStartRef.current = null;
       stopAutoPan();
+      // mark lasso inactive
+      try {
+        useCanvasStore.getState().setBoxSelecting(false);
+      } catch {
+        // ignore
+      }
       // Clear hover highlights when box selection ends
       try {
         const st2 = useCanvasStore.getState();
@@ -608,23 +759,52 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     const y1 = Math.min(sy, ey);
     const x2 = Math.max(sx, ex);
     const y2 = Math.max(sy, ey);
+
+    // Combined preview bbox for [group ∪ outside nodes] if available
+    let unionFrame: React.ReactNode = null;
+    if (liveCombinedBBox) {
+      const ux1 = (liveCombinedBBox.left - camera.offsetX) * z;
+      const uy1 = (liveCombinedBBox.top - camera.offsetY) * z;
+      const ux2 = (liveCombinedBBox.right - camera.offsetX) * z;
+      const uy2 = (liveCombinedBBox.bottom - camera.offsetY) * z;
+      unionFrame = (
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            left: Math.min(ux1, ux2),
+            top: Math.min(uy1, uy2),
+            width: Math.max(0, Math.abs(ux2 - ux1)),
+            height: Math.max(0, Math.abs(uy2 - uy1)),
+            pointerEvents: 'none',
+            zIndex: 2,
+            outline: '1px solid rgba(59, 130, 246, 0.9)',
+            boxShadow: 'inset 0 0 0 1px rgba(59,130,246,0.4)',
+          }}
+        />
+      );
+    }
+
     overlay = (
-      <div
-        aria-hidden
-        data-rc-box
-        style={{
-          position: 'absolute',
-          left: x1,
-          top: y1,
-          width: Math.max(0, x2 - x1),
-          height: Math.max(0, y2 - y1),
-          pointerEvents: 'none',
-          zIndex: 2,
-          background: 'rgba(59, 130, 246, 0.08)',
-          outline: '1px solid rgba(59, 130, 246, 0.9)',
-          boxShadow: 'inset 0 0 0 1px rgba(59,130,246,0.4)',
-        }}
-      />
+      <>
+        <div
+          aria-hidden
+          data-rc-box
+          style={{
+            position: 'absolute',
+            left: x1,
+            top: y1,
+            width: Math.max(0, x2 - x1),
+            height: Math.max(0, y2 - y1),
+            pointerEvents: 'none',
+            zIndex: 2,
+            background: 'rgba(59, 130, 246, 0.08)',
+            outline: '1px solid rgba(59, 130, 246, 0.9)',
+            boxShadow: 'inset 0 0 0 1px rgba(59,130,246,0.4)',
+          }}
+        />
+        {unionFrame}
+      </>
     );
   }
 

@@ -89,12 +89,19 @@ export function GroupContainersLayer() {
   // Current multi-selection bbox (>=2 nodes) for the temporary overlay
   const selectedIds = useSelectedIds();
   const selectionBBox = useMemo(() => {
-    if (!selectedIds || selectedIds.length < 2) return null;
-    const sel = new Set<NodeId>(selectedIds as NodeId[]);
+    // Build combined selection of: selected nodes + selected group (as one entity)
+    const nodesCount = selectedIds ? selectedIds.length : 0;
+    const hasGroup = Boolean(selectedGroupId);
+    // Show combined selection frame when at least two entities are selected
+    if (nodesCount + (hasGroup ? 1 : 0) < 2) return null;
+
+    const sel = new Set<NodeId>((selectedIds || []) as NodeId[]);
     let left = Infinity,
       top = Infinity,
       right = -Infinity,
       bottom = -Infinity;
+
+    // Include selected nodes
     for (const n of nodes) {
       if (!sel.has(n.id)) continue;
       left = Math.min(left, n.x);
@@ -102,9 +109,21 @@ export function GroupContainersLayer() {
       right = Math.max(right, n.x + n.width);
       bottom = Math.max(bottom, n.y + n.height);
     }
+
+    // Include selected visual group bbox if present
+    if (selectedGroupId) {
+      const cg = containers.find((c) => c.groupId === selectedGroupId);
+      if (cg) {
+        left = Math.min(left, cg.left);
+        top = Math.min(top, cg.top);
+        right = Math.max(right, cg.right);
+        bottom = Math.max(bottom, cg.bottom);
+      }
+    }
+
     if (left === Infinity) return null;
     return { left, top, right, bottom };
-  }, [nodes, selectedIds]);
+  }, [nodes, selectedIds, selectedGroupId, containers]);
 
   // Auto-pan bookkeeping (mirrors NodeView)
   const canvasElRef = useRef<HTMLElement | null>(null);

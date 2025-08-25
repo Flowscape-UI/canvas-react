@@ -33,6 +33,8 @@ export type CanvasState = {
   readonly nodes: Record<NodeId, Node>;
   /** Map of selected node IDs for O(1) membership checks. */
   readonly selected: Record<NodeId, true>;
+  /** UI: box-select (lasso) is active */
+  readonly boxSelecting: boolean;
   /** UI: purely visual groups, do NOT affect nodes hierarchy */
   readonly visualGroups: Record<string, { id: string; members: NodeId[] }>;
   /** UI: currently selected visual group id (single-select for now) */
@@ -75,6 +77,8 @@ export type CanvasActions = {
   // Inner-edit mode (UI-only)
   enterInnerEdit: (id: NodeId) => void;
   exitInnerEdit: () => void;
+  // Lasso state (UI-only)
+  setBoxSelecting: (active: boolean) => void;
   // Rulers/Guides (UI-only, not in history)
   toggleRulers: () => void;
   addGuide: (axis: 'x' | 'y', value: number) => GuideId;
@@ -129,6 +133,7 @@ export type CanvasStore = CanvasState & CanvasActions;
 const initialCamera: Camera = { zoom: 1, offsetX: 0, offsetY: 0 };
 const initialNodes: Record<NodeId, Node> = {};
 const initialSelected: Record<NodeId, true> = {};
+const initialBoxSelecting = false;
 const initialVisualGroups: CanvasState['visualGroups'] = {};
 const initialSelectedVisualGroupId: CanvasState['selectedVisualGroupId'] = null;
 const initialHoveredVisualGroupId: CanvasState['hoveredVisualGroupId'] = null;
@@ -152,6 +157,7 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
   camera: initialCamera,
   nodes: initialNodes,
   selected: initialSelected,
+  boxSelecting: initialBoxSelecting,
   visualGroups: initialVisualGroups,
   selectedVisualGroupId: initialSelectedVisualGroupId,
   hoveredVisualGroupId: initialHoveredVisualGroupId,
@@ -185,6 +191,9 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
   // --- Inner-edit UI state ---
   enterInnerEdit: (id) => set({ innerEditNodeId: id }),
   exitInnerEdit: () => set({ innerEditNodeId: null }),
+
+  // --- Lasso UI state ---
+  setBoxSelecting: (active) => set({ boxSelecting: active }),
 
   // --- Rulers/Guides UI ---
   toggleRulers: () => set((s) => ({ showRulers: !s.showRulers })),
