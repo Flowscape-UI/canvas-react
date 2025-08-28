@@ -6,6 +6,10 @@ export type Node = {
   y: number;
   width: number;
   height: number;
+  /** Rotation in degrees, clockwise. Defaults to 0 when omitted. */
+  rotation?: number;
+  /** Corner radius: either uniform number or per-corner radii. Defaults to 0 when omitted. */
+  cornerRadius?: number | { tl: number; tr: number; br: number; bl: number };
   /**
    * Optional logical parent for grouping. If set, this node is considered a child of `parentId`.
    * Invariants:

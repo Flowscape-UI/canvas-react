@@ -8,6 +8,8 @@ import {
   useInnerEditActions,
 } from '../state/store';
 import { Rulers } from './Rulers';
+import { AlignGuidesOverlay } from './AlignGuidesOverlay';
+import { EditFrameOverlay } from './EditFrameOverlay';
 import type { NodeId, Node } from '../types';
 
 export type CanvasProps = {
@@ -99,9 +101,12 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
   const [boxEnd, setBoxEnd] = useState<{ x: number; y: number } | null>(null);
   const isBoxSelecting = boxStart != null && boxEnd != null;
   // Live combined preview bbox (world coords) for [group ∪ outside nodes]
-  const [liveCombinedBBox, setLiveCombinedBBox] = useState<
-    { left: number; top: number; right: number; bottom: number } | null
-  >(null);
+  const [liveCombinedBBox, setLiveCombinedBBox] = useState<{
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+  } | null>(null);
   const activePointerIdRef = useRef<number | null>(null);
   // Снимок выделения на момент старта прямоугольного выделения (для additive на отпускании)
   const initialSelectionRef = useRef<Record<NodeId, true> | null>(null);
@@ -256,7 +261,10 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
           let count = 0;
           for (const hid of hits) if (vg.members.includes(hid as NodeId)) count++;
           if (count > 0) {
-            let L = Infinity, T = Infinity, R = -Infinity, B = -Infinity;
+            let L = Infinity,
+              T = Infinity,
+              R = -Infinity,
+              B = -Infinity;
             for (const mid of vg.members) {
               const n = st.nodes[mid as NodeId];
               if (!n) continue;
@@ -265,11 +273,16 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
               R = Math.max(R, n.x + n.width);
               B = Math.max(B, n.y + n.height);
             }
-            if (L !== Infinity) candidates.push({ id: vg.id, hitCount: count, area: Math.max(0, R - L) * Math.max(0, B - T) });
+            if (L !== Infinity)
+              candidates.push({
+                id: vg.id,
+                hitCount: count,
+                area: Math.max(0, R - L) * Math.max(0, B - T),
+              });
           }
         }
         if (candidates.length > 0) {
-          candidates.sort((a, b) => (b.hitCount - a.hitCount) || (b.area - a.area));
+          candidates.sort((a, b) => b.hitCount - a.hitCount || b.area - a.area);
           primaryGroupId = candidates[0]?.id || null;
           secondaryGroupId = candidates[1]?.id || null;
         }
@@ -299,7 +312,10 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
         try {
           const vg = st.visualGroups[primaryGroupId];
           if (vg) {
-            let L = Infinity, T = Infinity, R = -Infinity, B = -Infinity;
+            let L = Infinity,
+              T = Infinity,
+              R = -Infinity,
+              B = -Infinity;
             for (const mid of vg.members) {
               const n = st.nodes[mid as NodeId];
               if (!n) continue;
@@ -418,7 +434,10 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
           let count = 0;
           for (const hid of hits) if (vg.members.includes(hid as NodeId)) count++;
           if (count > 0) {
-            let L = Infinity, T = Infinity, R = -Infinity, B = -Infinity;
+            let L = Infinity,
+              T = Infinity,
+              R = -Infinity,
+              B = -Infinity;
             for (const mid of vg.members) {
               const n = st.nodes[mid as NodeId];
               if (!n) continue;
@@ -428,11 +447,15 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
               B = Math.max(B, n.y + n.height);
             }
             if (L !== Infinity)
-              candidates.push({ id: vg.id, hitCount: count, area: Math.max(0, R - L) * Math.max(0, B - T) });
+              candidates.push({
+                id: vg.id,
+                hitCount: count,
+                area: Math.max(0, R - L) * Math.max(0, B - T),
+              });
           }
         }
         if (candidates.length > 0) {
-          candidates.sort((a, b) => (b.hitCount - a.hitCount) || (b.area - a.area));
+          candidates.sort((a, b) => b.hitCount - a.hitCount || b.area - a.area);
           primaryGroupId = candidates[0]?.id || null;
           secondaryGroupId = candidates[1]?.id || null;
         }
@@ -450,7 +473,8 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
           const vg = st.visualGroups[primaryGroupId];
           if (vg) {
             const memberSet = new Set<NodeId>(vg.members as NodeId[]);
-            for (const hid of hits) if (!memberSet.has(hid as NodeId)) addToSelection(hid as NodeId);
+            for (const hid of hits)
+              if (!memberSet.has(hid as NodeId)) addToSelection(hid as NodeId);
           }
         } catch {
           // ignore
@@ -459,7 +483,10 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
         try {
           const vg = st.visualGroups[primaryGroupId];
           if (vg) {
-            let L = Infinity, T = Infinity, R = -Infinity, B = -Infinity;
+            let L = Infinity,
+              T = Infinity,
+              R = -Infinity,
+              B = -Infinity;
             for (const mid of vg.members) {
               const n = st.nodes[mid as NodeId];
               if (!n) continue;
@@ -583,7 +610,10 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
           let count = 0;
           for (const hid of hits) if (vg.members.includes(hid as NodeId)) count++;
           if (count > 0) {
-            let L = Infinity, T = Infinity, R = -Infinity, B = -Infinity;
+            let L = Infinity,
+              T = Infinity,
+              R = -Infinity,
+              B = -Infinity;
             for (const mid of vg.members) {
               const n = st.nodes[mid as NodeId];
               if (!n) continue;
@@ -592,11 +622,16 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
               R = Math.max(R, n.x + n.width);
               B = Math.max(B, n.y + n.height);
             }
-            if (L !== Infinity) candidates.push({ id: vg.id, hitCount: count, area: Math.max(0, R - L) * Math.max(0, B - T) });
+            if (L !== Infinity)
+              candidates.push({
+                id: vg.id,
+                hitCount: count,
+                area: Math.max(0, R - L) * Math.max(0, B - T),
+              });
           }
         }
         if (candidates.length > 0) {
-          candidates.sort((a, b) => (b.hitCount - a.hitCount) || (b.area - a.area));
+          candidates.sort((a, b) => b.hitCount - a.hitCount || b.area - a.area);
           chosenGroupId = candidates[0]?.id || null;
           secondGroupId = candidates[1]?.id || null;
         }
@@ -841,7 +876,9 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
         {background}
       </div>
       <div style={{ position: 'relative', zIndex: 1, height: '100%' }}>{children}</div>
+      <AlignGuidesOverlay />
       {overlay}
+      <EditFrameOverlay />
       {showRulers ? <Rulers /> : null}
     </div>
   );

@@ -485,10 +485,12 @@ export function useCanvasNavigation(
         }
       }
 
-      // deletion: Delete / Backspace removes selected nodes
+      // deletion: Delete / Backspace removes selected nodes or selected visual group
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        const { selected, deleteSelected } = useCanvasStore.getState();
-        if (Object.keys(selected).length > 0) {
+        const { selected, selectedVisualGroupId, deleteSelected } = useCanvasStore.getState();
+        const hasNodeSelection = Object.keys(selected).length > 0;
+        const hasGroupSelection = !!selectedVisualGroupId;
+        if (hasNodeSelection || hasGroupSelection) {
           e.preventDefault();
           deleteSelected();
         }

@@ -9,3 +9,4 @@ export * from './react/useWorldLockedTile';
 export * from './react/NodeView';
 export * from './react/useCanvasHelpers';
 export * from './react/Rulers';
+export * from './react/EditFrameOverlay';

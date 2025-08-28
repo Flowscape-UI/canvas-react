@@ -134,4 +134,35 @@ describe('useCanvasNavigation: grouping keyboard shortcut', () => {
       unmount();
     });
   });
+
+  it('Delete removes a selected visual group even when no nodes are selected', async () => {
+    const { container, unmount } = await render(<TestHost />);
+    const canvas = container.querySelector('[data-testid="canvas"]')! as HTMLDivElement;
+
+    // Arrange: two nodes, form a visual group, select the group only (no node selection)
+    await act(async () => {
+      useCanvasStore.getState().addNode({ id: 'a', x: 0, y: 0, width: 10, height: 10 });
+      useCanvasStore.getState().addNode({ id: 'b', x: 20, y: 0, width: 10, height: 10 });
+      useCanvasStore.setState((s) => ({
+        ...s,
+        visualGroups: { G: { id: 'G', members: ['a', 'b'] } },
+        selectedVisualGroupId: 'G',
+        selected: {},
+      }));
+    });
+
+    // Press Delete
+    await act(async () => {
+      dispatchKey(canvas, 'Delete', 'Delete');
+    });
+
+    const s = useCanvasStore.getState();
+    expect(s.visualGroups['G']).toBeUndefined();
+    expect(s.nodes['a']).toBeUndefined();
+    expect(s.nodes['b']).toBeUndefined();
+
+    await act(async () => {
+      unmount();
+    });
+  });
 });

@@ -41,7 +41,13 @@ export function applyPan(camera: Camera, dx: number, dy: number): Camera {
  * Zoom at a specific SCREEN point, keeping that point visually stationary.
  * factor > 1 zooms in; factor < 1 zooms out.
  */
-export function zoomAtPoint(camera: Camera, screenPoint: Point, factor: number, min = 0.1, max = 5): Camera {
+export function zoomAtPoint(
+  camera: Camera,
+  screenPoint: Point,
+  factor: number,
+  min = 0.1,
+  max = 5,
+): Camera {
   const targetWorld = screenToWorld(screenPoint, camera);
   const nextZoom = clampZoom(camera.zoom * factor, min, max);
   // Solve for offsets so that worldToScreen(targetWorld, nextCamera) == screenPoint
