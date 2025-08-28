@@ -7,6 +7,16 @@
 
 High-performance React library for an interactive infinite canvas with nodes, pan/zoom, selection, history, and a plugin-friendly architecture.
 
+## What's new in 1.1.1 (MVP‑0.3)
+
+- Edit Frame overlay for selected nodes:
+  - Corner resize handles at all 4 corners. Shift — keep aspect ratio. Alt — resize from center.
+  - Rotate handles — circular handles outside corners, rotation around the node center. Angle‑based math relative to center.
+  - Corner‑radius (inner dots) — dots inside the frame: drag to change the radius, Ctrl — uniform radius for all four corners.
+  - Size badge under the frame during resize, values shown in world units (zoom‑aware).
+- UX/History: temporary updates during drag and a single commit on left‑button release. Undo/Redo reverts the entire gesture in one step.
+- Handle geometry now uses local coordinates inside a single rotated frame container — handles stay aligned at any rotation.
+
 ## Install
 
 Peer deps: React 18+
@@ -16,6 +26,56 @@ bun add @flowscape-ui/canvas-react
 # or
 npm i @flowscape-ui/canvas-react
 ```
+
+## Features
+- Everything from MVP‑0.2 (see below), plus the new Edit Frame overlay (see next section).
+
+### Edit Frame Overlay (selection UI)
+
+Shown when a single node is selected. For a node inside a group, double‑click enters inner‑edit, and the frame appears only around that node.
+
+Capabilities:
+
+- Resize: drag corner handles
+  - Shift — keep aspect ratio
+  - Alt — resize from center
+- Rotate: drag circular handles outside corners
+  - Rotates around the node center
+  - Uses an angle relative to center with a "rotate" cursor
+- Corner‑radius: drag inner dots near each corner
+  - Ctrl — uniform radius for all four corners
+  - Radius is clamped to half of the shorter side
+- Size badge: shows current W×H below the frame during resize
+
+Gesture behavior and history:
+
+- During drag, updates are temporary (not recorded in history)
+- On left‑button release, a single history commit is created
+- `Undo/Redo` reverts/reapplies the entire gesture in one step
+
+Example: zero‑config — the frame and handles appear automatically when a node is selected:
+
+```tsx
+import { Canvas, NodeView, useNodes } from '@flowscape-ui/canvas-react';
+
+export default function EditFrameDemo() {
+  const nodes = useNodes();
+  return (
+    <Canvas style={{ width: 800, height: 600, border: '1px solid #ddd' }}>
+      {nodes.map((n) => (
+        <NodeView key={n.id} node={n}>
+          <div style={{ padding: 8 }}>Node {n.id}</div>
+        </NodeView>
+      ))}
+    </Canvas>
+  );
+}
+```
+
+UX tips:
+
+- Rotate/resize/radius work only while the left mouse button is pressed; the gesture auto‑finishes on release or `pointercancel`.
+- Panning with LMB is disabled over handles; use the middle button (default) or right button — see `useCanvasNavigation`.
 
 ## Features (MVP-0.2)
 - Pan/Zoom with mouse and keyboard. Default zoom bounds: 0.5–2.4 (50–240%).

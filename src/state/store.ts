@@ -3,7 +3,7 @@ import type { Camera, Point } from '../core/coords';
 import type { Node, NodeId } from '../types';
 import { applyPan, clampZoom, zoomAtPoint } from '../core/coords';
 
-// History types (nodes and guides; camera and zoom are excluded)
+// History types (nodes, guides, and visual groups; camera and zoom are excluded)
 type NodeChange =
   | { kind: 'add'; node: Node }
   | { kind: 'remove'; node: Node }
@@ -15,15 +15,39 @@ type GuideChange =
   | { kind: 'clear'; guides: Guide[] }
   | { kind: 'setActive'; before: GuideId | null; after: GuideId | null };
 
+type VisualGroup = { id: string; members: NodeId[] };
+type VisualGroupChange = { kind: 'add' | 'remove'; group: VisualGroup };
+
 type HistoryEntry = {
   label?: string;
   changes: NodeChange[];
   guideChanges?: GuideChange[];
+  visualGroupChanges?: VisualGroupChange[];
 };
 
 // Rulers/Guides UI types (not part of history)
 export type GuideId = string;
 export type Guide = { id: GuideId; axis: 'x' | 'y'; value: number };
+
+// Alignment helper guides (ephemeral, computed during transform; not in history)
+export type AlignGuide = {
+  axis: 'x' | 'y';
+  at: number; // world coordinate where alignment occurs
+  kind: 'edge' | 'center';
+  targetId: NodeId | 'selection';
+};
+
+// Resize gesture parameters (ephemeral). Kept minimal for MVP-0.0 scaffolding.
+export type ResizeSelectionParams = {
+  dx: number; // world delta applied to drag
+  dy: number; // world delta applied to drag
+  anchor?: 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
+  proportional?: boolean; // Shift
+  fromCenter?: boolean; // Alt
+  /** Base dimensions at gesture start (world units). If provided, use these instead of current node size for temporary updates. */
+  fromWidth?: number;
+  fromHeight?: number;
+};
 
 export const MIN_ZOOM = 0.6;
 export const MAX_ZOOM = 2.4;
@@ -35,6 +59,8 @@ export type CanvasState = {
   readonly selected: Record<NodeId, true>;
   /** UI: box-select (lasso) is active */
   readonly boxSelecting: boolean;
+  /** UI: true while a node drag gesture is actively moving (after threshold). */
+  readonly isDraggingNode: boolean;
   /** UI: purely visual groups, do NOT affect nodes hierarchy */
   readonly visualGroups: Record<string, { id: string; members: NodeId[] }>;
   /** UI: currently selected visual group id (single-select for now) */
@@ -45,6 +71,8 @@ export type CanvasState = {
   readonly hoveredVisualGroupIdSecondary: string | null;
   /** UI: inner-edit mode target node; when set, drags affect only this node (and its descendants). */
   readonly innerEditNodeId: NodeId | null;
+  /** UI: true while a transform gesture is active (resize/rotate/radius). */
+  readonly isTransforming: boolean;
   /** Internal counter for add-at-center offset progression. */
   readonly centerAddIndex: number;
   /** Clipboard buffer storing a snapshot of nodes to paste. */
@@ -59,6 +87,7 @@ export type CanvasState = {
     label?: string;
     changes: NodeChange[];
     updateIndexById: Record<NodeId, number>;
+    groupChanges?: VisualGroupChange[];
   } | null;
   /** UI: show rulers overlay */
   readonly showRulers: boolean;
@@ -66,6 +95,18 @@ export type CanvasState = {
   readonly guides: Guide[];
   /** UI: currently active guide (for deletion, highlight) */
   readonly activeGuideId: GuideId | null;
+  /** UI: alignment helper guides for snapping (ephemeral) */
+  readonly alignmentGuides: AlignGuide[];
+  /** UI: current snap offset applied to pointer (world units) */
+  readonly snapOffset: { dx: number; dy: number } | null;
+  /** UI: ephemeral snap lock on X axis during drag (hysteresis) */
+  readonly snapLockX: { at: number; kind: 'edge' | 'center' } | null;
+  /** UI: ephemeral snap lock on Y axis during drag (hysteresis) */
+  readonly snapLockY: { at: number; kind: 'edge' | 'center' } | null;
+  /** UI: global toggle for snapping */
+  readonly alignSnapEnabled: boolean;
+  /** UI: snapping tolerance in screen pixels */
+  readonly alignSnapTolerancePx: number;
 };
 
 export type CanvasActions = {
@@ -79,6 +120,8 @@ export type CanvasActions = {
   exitInnerEdit: () => void;
   // Lasso state (UI-only)
   setBoxSelecting: (active: boolean) => void;
+  // DnD state (UI-only)
+  setDraggingNode: (active: boolean) => void;
   // Rulers/Guides (UI-only, not in history)
   toggleRulers: () => void;
   addGuide: (axis: 'x' | 'y', value: number) => GuideId;
@@ -88,6 +131,13 @@ export type CanvasActions = {
   removeGuide: (id: GuideId) => void;
   clearGuides: () => void;
   setActiveGuide: (id: GuideId | null) => void;
+  // Alignment/snap (UI-only)
+  setAlignSnapEnabled: (enabled: boolean) => void;
+  setAlignSnapTolerancePx: (px: number) => void;
+  setAlignmentGuides: (guides: AlignGuide[]) => void;
+  clearAlignmentGuides: () => void;
+  setSnapOffset: (offset: { dx: number; dy: number } | null) => void;
+  clearSnapOffset: () => void;
   // Nodes CRUD
   addNode: (node: Node) => void;
   /** Add node at the visible center regardless of zoom, with slight diagonal offset per call. */
@@ -102,6 +152,16 @@ export type CanvasActions = {
   ungroup: (ids: NodeId[]) => void;
   /** Move all currently selected nodes by dx,dy in WORLD units. */
   moveSelectedBy: (dx: number, dy: number) => void;
+  // Selection transforms (Temporary/Commit pattern)
+  resizeSelectionTemporary: (params: ResizeSelectionParams) => void;
+  resizeSelectionCommit: (
+    from: { width: number; height: number },
+    to: { width: number; height: number },
+  ) => void;
+  rotateSelectionTemporary: (deltaAngle: number) => void;
+  rotateSelectionCommit: (fromAngle: number, toAngle: number) => void;
+  setCornerRadiusTemporary: (value: Node['cornerRadius']) => void;
+  setCornerRadiusCommit: (from: Node['cornerRadius'], to: Node['cornerRadius']) => void;
   // Selection (CORE-05a)
   clearSelection: () => void;
   /** Select only the given node id (single selection). */
@@ -134,11 +194,13 @@ const initialCamera: Camera = { zoom: 1, offsetX: 0, offsetY: 0 };
 const initialNodes: Record<NodeId, Node> = {};
 const initialSelected: Record<NodeId, true> = {};
 const initialBoxSelecting = false;
+const initialIsDraggingNode = false;
 const initialVisualGroups: CanvasState['visualGroups'] = {};
 const initialSelectedVisualGroupId: CanvasState['selectedVisualGroupId'] = null;
 const initialHoveredVisualGroupId: CanvasState['hoveredVisualGroupId'] = null;
 const initialHoveredVisualGroupIdSecondary: CanvasState['hoveredVisualGroupIdSecondary'] = null;
 const initialInnerEditNodeId: CanvasState['innerEditNodeId'] = null;
+const initialIsTransforming = false;
 const initialCenterAddIndex = 0;
 const initialClipboard: CanvasState['clipboard'] = null;
 const initialPasteIndex = 0;
@@ -147,6 +209,12 @@ const initialHistoryFuture: HistoryEntry[] = [];
 const initialShowRulers = true;
 const initialGuides: Guide[] = [];
 const initialActiveGuideId: GuideId | null = null;
+const initialAlignmentGuides: AlignGuide[] = [];
+const initialSnapOffset: { dx: number; dy: number } | null = null;
+const initialSnapLockX: CanvasState['snapLockX'] = null;
+const initialSnapLockY: CanvasState['snapLockY'] = null;
+const initialAlignSnapEnabled = true;
+const initialAlignSnapTolerancePx = 8;
 // Guide history is now integrated into main history system
 
 // Internal flag: suppress history recording during undo/redo replay
@@ -158,11 +226,13 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
   nodes: initialNodes,
   selected: initialSelected,
   boxSelecting: initialBoxSelecting,
+  isDraggingNode: initialIsDraggingNode,
   visualGroups: initialVisualGroups,
   selectedVisualGroupId: initialSelectedVisualGroupId,
   hoveredVisualGroupId: initialHoveredVisualGroupId,
   hoveredVisualGroupIdSecondary: initialHoveredVisualGroupIdSecondary,
   innerEditNodeId: initialInnerEditNodeId,
+  isTransforming: initialIsTransforming,
   centerAddIndex: initialCenterAddIndex,
   clipboard: initialClipboard,
   pasteIndex: initialPasteIndex,
@@ -172,6 +242,12 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
   showRulers: initialShowRulers,
   guides: initialGuides,
   activeGuideId: initialActiveGuideId,
+  alignmentGuides: initialAlignmentGuides,
+  snapOffset: initialSnapOffset,
+  snapLockX: initialSnapLockX,
+  snapLockY: initialSnapLockY,
+  alignSnapEnabled: initialAlignSnapEnabled,
+  alignSnapTolerancePx: initialAlignSnapTolerancePx,
 
   setCamera: (camera) => set({ camera }),
 
@@ -194,6 +270,8 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
 
   // --- Lasso UI state ---
   setBoxSelecting: (active) => set({ boxSelecting: active }),
+  // --- DnD UI state ---
+  setDraggingNode: (active) => set({ isDraggingNode: active }),
 
   // --- Rulers/Guides UI ---
   toggleRulers: () => set((s) => ({ showRulers: !s.showRulers })),
@@ -321,6 +399,14 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
     }),
   setActiveGuide: (id) => set({ activeGuideId: id }),
 
+  // --- Alignment/Snap UI state ---
+  setAlignSnapEnabled: (enabled) => set({ alignSnapEnabled: enabled }),
+  setAlignSnapTolerancePx: (px) => set({ alignSnapTolerancePx: px }),
+  setAlignmentGuides: (guides) => set({ alignmentGuides: guides }),
+  clearAlignmentGuides: () => set({ alignmentGuides: [] }),
+  setSnapOffset: (offset) => set({ snapOffset: offset }),
+  clearSnapOffset: () => set({ snapOffset: null }),
+
   // Nodes CRUD
   addNode: (node) =>
     set((s) => {
@@ -340,6 +426,181 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
         historyFuture: [],
       } as Partial<CanvasStore> as CanvasStore;
     }),
+
+  // --- Selection transforms (Temporary/Commit) ---
+  resizeSelectionTemporary: (params) => {
+    set((s) => {
+      // Mark gesture active
+      const partial: Partial<CanvasStore> = { isTransforming: true } as Partial<CanvasStore>;
+      // Determine primary target: innerEdit node, else single selection
+      let targetId: NodeId | null = null;
+      if (s.innerEditNodeId && s.nodes[s.innerEditNodeId]) targetId = s.innerEditNodeId;
+      else {
+        const ids = Object.keys(s.selected) as NodeId[];
+        if (ids.length === 1) targetId = ids[0];
+      }
+      if (!targetId) return partial as Partial<CanvasStore> as CanvasStore;
+
+      const n = s.nodes[targetId];
+      if (!n) return partial as Partial<CanvasStore> as CanvasStore;
+
+      const dx = params.dx || 0;
+      const dy = params.dy || 0;
+      const baseW = params.fromWidth != null ? params.fromWidth : (n.width ?? 0);
+      const baseH = params.fromHeight != null ? params.fromHeight : (n.height ?? 0);
+      let newW = Math.max(1, baseW + dx);
+      let newH = Math.max(1, baseH + dy);
+
+      if (params.proportional) {
+        const aspect = (baseW || 1) / Math.max(1, baseH || 1);
+        if (Math.abs(dx) > Math.abs(dy)) newH = Math.max(1, newW / Math.max(0.01, aspect));
+        else newW = Math.max(1, newH * Math.max(0.01, aspect));
+      }
+
+      if (params.fromCenter) {
+        const k2 = 2;
+        newW = Math.max(1, baseW + (newW - baseW) * k2);
+        newH = Math.max(1, baseH + (newH - baseH) * k2);
+      }
+
+      // Live update without history (UI-temporary)
+      const nextNodes = { ...s.nodes, [targetId]: { ...n, width: newW, height: newH } } as Record<
+        NodeId,
+        Node
+      >;
+      return {
+        ...(partial as CanvasStore),
+        nodes: nextNodes,
+      } as Partial<CanvasStore> as CanvasStore;
+    });
+  },
+  resizeSelectionCommit: (from, to) => {
+    set((s) => {
+      // Determine primary target: innerEdit node, else single selection
+      let targetId: NodeId | null = null;
+      if (s.innerEditNodeId && s.nodes[s.innerEditNodeId]) targetId = s.innerEditNodeId;
+      else {
+        const ids = Object.keys(s.selected) as NodeId[];
+        if (ids.length === 1) targetId = ids[0];
+      }
+
+      if (!targetId) return { isTransforming: false } as Partial<CanvasStore> as CanvasStore;
+      const n = s.nodes[targetId];
+      if (!n) return { isTransforming: false } as Partial<CanvasStore> as CanvasStore;
+
+      const changed =
+        Math.round(from.width ?? 0) !== Math.round(to.width ?? 0) ||
+        Math.round(from.height ?? 0) !== Math.round(to.height ?? 0);
+      if (!changed) return { isTransforming: false } as Partial<CanvasStore> as CanvasStore;
+
+      // Commit with history (coalesced if inside a batch)
+      if (!__isReplayingHistory) get().beginHistory('resize');
+      get().updateNode(targetId, { width: Math.max(1, to.width), height: Math.max(1, to.height) });
+      if (!__isReplayingHistory) get().endHistory();
+      return { isTransforming: false } as Partial<CanvasStore> as CanvasStore;
+    });
+  },
+  rotateSelectionTemporary: (deltaAngle) => {
+    void deltaAngle;
+    set({ isTransforming: true });
+  },
+  rotateSelectionCommit: (fromAngle, toAngle) => {
+    const s = get();
+    const delta = toAngle - fromAngle;
+    if (delta === 0) {
+      set({ isTransforming: false } as Partial<CanvasStore> as CanvasStore);
+      return;
+    }
+    // Collect selection with inner-edit scoping (same as moveSelectedBy)
+    let selIds = Object.keys(s.selected) as NodeId[];
+    if (s.innerEditNodeId) {
+      const gid = s.selectedVisualGroupId;
+      if (gid && s.visualGroups[gid]) {
+        const members = new Set<NodeId>(s.visualGroups[gid].members as NodeId[]);
+        selIds = selIds.filter((id) => members.has(id));
+      } else {
+        const scopeRoot = s.innerEditNodeId;
+        const isWithinScope = (id: NodeId): boolean => {
+          let cur: NodeId | null | undefined = id;
+          while (cur != null) {
+            if (cur === scopeRoot) return true;
+            cur = s.nodes[cur]?.parentId ?? null;
+          }
+          return false;
+        };
+        selIds = selIds.filter(isWithinScope);
+      }
+    }
+    if (selIds.length === 0) {
+      set({ isTransforming: false } as Partial<CanvasStore> as CanvasStore);
+      return;
+    }
+    if (!__isReplayingHistory) get().beginHistory('rotate');
+    for (const id of selIds) {
+      const n = s.nodes[id];
+      const current = n?.rotation ?? 0;
+      get().updateNode(id, { rotation: current + delta });
+    }
+    if (!__isReplayingHistory) get().endHistory();
+    set({ isTransforming: false } as Partial<CanvasStore> as CanvasStore);
+  },
+  setCornerRadiusTemporary: (value) => {
+    set((s) => {
+      // mark gesture active
+      const partial: Partial<CanvasStore> = { isTransforming: true } as Partial<CanvasStore>;
+      // Determine primary target: innerEdit node, else single selection
+      let targetId: NodeId | null = null;
+      if (s.innerEditNodeId && s.nodes[s.innerEditNodeId]) targetId = s.innerEditNodeId;
+      else {
+        const ids = Object.keys(s.selected) as NodeId[];
+        if (ids.length === 1) targetId = ids[0];
+      }
+      if (!targetId) return partial as Partial<CanvasStore> as CanvasStore;
+      const n = s.nodes[targetId];
+      if (!n) return partial as Partial<CanvasStore> as CanvasStore;
+
+      const nextNodes = { ...s.nodes, [targetId]: { ...n, cornerRadius: value } } as Record<
+        NodeId,
+        Node
+      >;
+      return {
+        ...(partial as CanvasStore),
+        nodes: nextNodes,
+      } as Partial<CanvasStore> as CanvasStore;
+    });
+  },
+  setCornerRadiusCommit: (_from, to) => {
+    const s = get();
+    let selIds = Object.keys(s.selected) as NodeId[];
+    if (s.innerEditNodeId) {
+      const gid = s.selectedVisualGroupId;
+      if (gid && s.visualGroups[gid]) {
+        const members = new Set<NodeId>(s.visualGroups[gid].members as NodeId[]);
+        selIds = selIds.filter((id) => members.has(id));
+      } else {
+        const scopeRoot = s.innerEditNodeId;
+        const isWithinScope = (id: NodeId): boolean => {
+          let cur: NodeId | null | undefined = id;
+          while (cur != null) {
+            if (cur === scopeRoot) return true;
+            cur = s.nodes[cur]?.parentId ?? null;
+          }
+          return false;
+        };
+        selIds = selIds.filter(isWithinScope);
+      }
+    }
+    if (selIds.length === 0) {
+      set({ isTransforming: false } as Partial<CanvasStore> as CanvasStore);
+      return;
+    }
+    if (!__isReplayingHistory) get().beginHistory('cornerRadius');
+    for (const id of selIds) {
+      get().updateNode(id, { cornerRadius: to });
+    }
+    if (!__isReplayingHistory) get().endHistory();
+    set({ isTransforming: false } as Partial<CanvasStore> as CanvasStore);
+  },
   addNodeAtCenter: (node) =>
     set((s) => {
       const stepPx = 16; // screen px per step
@@ -769,19 +1030,225 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
           }
         }
       }
+      // --- Alignment snapping (ephemeral) ---
+      let dxApplied = dx;
+      let dyApplied = dy;
+      const guidesEphemeral: AlignGuide[] = [];
+      let snapDx = 0;
+      let snapDy = 0;
+      let nextSnapLockX = s.snapLockX;
+      let nextSnapLockY = s.snapLockY;
+      // Compute snapping only during an active drag batch (gesture), not for programmatic moves
+      if (s.alignSnapEnabled && s.historyBatch) {
+        const zoom = s.camera.zoom || 1;
+        const tolWorld = (s.alignSnapTolerancePx || 0) / zoom;
+        if (tolWorld > 0) {
+          // Compute selection bounding box (selected ids only, not descendants)
+          let selLeft = Infinity,
+            selTop = Infinity,
+            selRight = -Infinity,
+            selBottom = -Infinity;
+          for (const id of selIds) {
+            const n = s.nodes[id];
+            if (!n) continue;
+            selLeft = Math.min(selLeft, n.x);
+            selTop = Math.min(selTop, n.y);
+            selRight = Math.max(selRight, n.x + n.width);
+            selBottom = Math.max(selBottom, n.y + n.height);
+          }
+          if (selLeft !== Infinity) {
+            const selW = Math.max(0, selRight - selLeft);
+            const selH = Math.max(0, selBottom - selTop);
+            const selCx = selLeft + selW / 2;
+            const selCy = selTop + selH / 2;
+            // Collect target positions from static nodes (not moving) and guides
+            type Target = { axis: 'x' | 'y'; at: number; targetId: NodeId | 'selection' };
+            const targetsX: Target[] = [];
+            const targetsY: Target[] = [];
+            for (const [id, n] of Object.entries(s.nodes) as [NodeId, Node][]) {
+              if (toMove.has(id)) continue;
+              const left = n.x;
+              const top = n.y;
+              const right = n.x + n.width;
+              const bottom = n.y + n.height;
+              const cx = left + n.width / 2;
+              const cy = top + n.height / 2;
+              targetsX.push({ axis: 'x', at: left, targetId: id });
+              targetsX.push({ axis: 'x', at: cx, targetId: id });
+              targetsX.push({ axis: 'x', at: right, targetId: id });
+              targetsY.push({ axis: 'y', at: top, targetId: id });
+              targetsY.push({ axis: 'y', at: cy, targetId: id });
+              targetsY.push({ axis: 'y', at: bottom, targetId: id });
+            }
+            for (const g of s.guides) {
+              if (g.axis === 'x') targetsX.push({ axis: 'x', at: g.value, targetId: 'selection' });
+              else targetsY.push({ axis: 'y', at: g.value, targetId: 'selection' });
+            }
+            // Current moved features
+            const leftMoved = selLeft + dx;
+            const rightMoved = selRight + dx;
+            const cxMoved = selCx + dx;
+            const topMoved = selTop + dy;
+            const bottomMoved = selBottom + dy;
+            const cyMoved = selCy + dy;
+            // Find best X snap
+            let bestX: { corr: number; guide: AlignGuide } | null = null;
+            for (const t of targetsX) {
+              const dL = t.at - leftMoved;
+              const dC = t.at - cxMoved;
+              const dR = t.at - rightMoved;
+              const cand: Array<{ corr: number; kind: 'edge' | 'center' }> = [
+                { corr: dL, kind: 'edge' },
+                { corr: dC, kind: 'center' },
+                { corr: dR, kind: 'edge' },
+              ];
+              for (const c of cand) {
+                const ad = Math.abs(c.corr);
+                if (ad <= tolWorld) {
+                  if (!bestX || ad < Math.abs(bestX.corr)) {
+                    bestX = {
+                      corr: c.corr,
+                      guide: { axis: 'x', at: t.at, kind: c.kind, targetId: t.targetId },
+                    };
+                  }
+                }
+              }
+            }
+            // Find best Y snap
+            let bestY: { corr: number; guide: AlignGuide } | null = null;
+            for (const t of targetsY) {
+              const dT = t.at - topMoved;
+              const dC = t.at - cyMoved;
+              const dB = t.at - bottomMoved;
+              const cand: Array<{ corr: number; kind: 'edge' | 'center' }> = [
+                { corr: dT, kind: 'edge' },
+                { corr: dC, kind: 'center' },
+                { corr: dB, kind: 'edge' },
+              ];
+              for (const c of cand) {
+                const ad = Math.abs(c.corr);
+                if (ad <= tolWorld) {
+                  if (!bestY || ad < Math.abs(bestY.corr)) {
+                    bestY = {
+                      corr: c.corr,
+                      guide: { axis: 'y', at: t.at, kind: c.kind, targetId: t.targetId },
+                    };
+                  }
+                }
+              }
+            }
+            // X-axis snap lock with hysteresis
+            const deadband = tolWorld * 0.5;
+            if (nextSnapLockX) {
+              // Compute corr to lock.at using current moved features
+              const dL = nextSnapLockX.at - (selLeft + dx);
+              const dC = nextSnapLockX.at - (selCx + dx);
+              const dR = nextSnapLockX.at - (selRight + dx);
+              const candX: Array<{ corr: number; kind: 'edge' | 'center' }> = [
+                { corr: dL, kind: 'edge' },
+                { corr: dC, kind: 'center' },
+                { corr: dR, kind: 'edge' },
+              ];
+              const corr = candX.reduce(
+                (best, c) => (Math.abs(c.corr) < Math.abs(best.corr) ? c : best),
+                { corr: candX[0].corr, kind: candX[0].kind },
+              );
+              // Unlock if moving away and exceeded deadband
+              if (
+                dx !== 0 &&
+                Math.sign(dx) !== Math.sign(corr.corr) &&
+                Math.abs(corr.corr) > deadband
+              ) {
+                nextSnapLockX = null;
+              } else {
+                // Stay locked: snap exactly
+                dxApplied = dx + corr.corr;
+                snapDx = corr.corr;
+                guidesEphemeral.push({
+                  axis: 'x',
+                  at: nextSnapLockX.at,
+                  kind: corr.kind,
+                  targetId: 'selection',
+                });
+              }
+            }
+            if (!nextSnapLockX && bestX) {
+              // Lock when approaching within tolerance and moving toward the guide
+              if (dx !== 0 && Math.sign(dx) === Math.sign(bestX.corr)) {
+                nextSnapLockX = { at: bestX.guide.at, kind: bestX.guide.kind };
+                dxApplied = dx + bestX.corr;
+                snapDx = bestX.corr;
+                guidesEphemeral.push(bestX.guide);
+              } else {
+                // Not locking (e.g., corr ~= 0 or moving away) — still show guide for UX
+                guidesEphemeral.push(bestX.guide);
+              }
+            }
+            // If we had a locked Y but not X, or vice versa, ensure guides still reflect proximity
+            // Y-axis snap lock with hysteresis
+            if (nextSnapLockY) {
+              const dT = nextSnapLockY.at - (selTop + dy);
+              const dC = nextSnapLockY.at - (selCy + dy);
+              const dB = nextSnapLockY.at - (selBottom + dy);
+              const candY: Array<{ corr: number; kind: 'edge' | 'center' }> = [
+                { corr: dT, kind: 'edge' },
+                { corr: dC, kind: 'center' },
+                { corr: dB, kind: 'edge' },
+              ];
+              const corr = candY.reduce(
+                (best, c) => (Math.abs(c.corr) < Math.abs(best.corr) ? c : best),
+                { corr: candY[0].corr, kind: candY[0].kind },
+              );
+              if (
+                dy !== 0 &&
+                Math.sign(dy) !== Math.sign(corr.corr) &&
+                Math.abs(corr.corr) > deadband
+              ) {
+                nextSnapLockY = null;
+              } else {
+                dyApplied = dy + corr.corr;
+                snapDy = corr.corr;
+                guidesEphemeral.push({
+                  axis: 'y',
+                  at: nextSnapLockY.at,
+                  kind: corr.kind,
+                  targetId: 'selection',
+                });
+              }
+            }
+            if (!nextSnapLockY && bestY) {
+              if (dy !== 0 && Math.sign(dy) === Math.sign(bestY.corr)) {
+                nextSnapLockY = { at: bestY.guide.at, kind: bestY.guide.kind };
+                dyApplied = dy + bestY.corr;
+                snapDy = bestY.corr;
+                guidesEphemeral.push(bestY.guide);
+              } else {
+                guidesEphemeral.push(bestY.guide);
+              }
+            }
+          }
+        }
+      }
       let changed = false;
       const nextNodes: Record<NodeId, Node> = { ...s.nodes };
       const updates: { id: NodeId; before: Node; after: Node }[] = [];
       for (const id of toMove) {
         const n = s.nodes[id];
         if (!n) continue;
-        const moved = { ...n, x: n.x + dx, y: n.y + dy } as Node;
+        const moved = { ...n, x: n.x + dxApplied, y: n.y + dyApplied } as Node;
         nextNodes[id] = moved;
         updates.push({ id, before: n, after: moved });
         changed = true;
       }
       if (!changed) return {} as Partial<CanvasStore> as CanvasStore;
-      if (__isReplayingHistory) return { nodes: nextNodes } as Partial<CanvasStore> as CanvasStore;
+      if (__isReplayingHistory)
+        return {
+          nodes: nextNodes,
+          alignmentGuides: guidesEphemeral,
+          snapOffset: guidesEphemeral.length ? { dx: snapDx, dy: snapDy } : null,
+          snapLockX: nextSnapLockX,
+          snapLockY: nextSnapLockY,
+        } as Partial<CanvasStore> as CanvasStore;
       if (s.historyBatch) {
         const batch = s.historyBatch;
         // merge each update with per-node coalescing
@@ -800,6 +1267,10 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
         }
         return {
           nodes: nextNodes,
+          alignmentGuides: guidesEphemeral,
+          snapOffset: guidesEphemeral.length ? { dx: snapDx, dy: snapDy } : null,
+          snapLockX: nextSnapLockX,
+          snapLockY: nextSnapLockY,
           historyBatch: { ...batch, changes: newChanges, updateIndexById: newMap },
         } as Partial<CanvasStore> as CanvasStore;
       }
@@ -813,20 +1284,63 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
       };
       return {
         nodes: nextNodes,
+        alignmentGuides: guidesEphemeral,
+        snapOffset: guidesEphemeral.length ? { dx: snapDx, dy: snapDy } : null,
+        snapLockX: nextSnapLockX,
+        snapLockY: nextSnapLockY,
         historyPast: [...s.historyPast, entry],
         historyFuture: [],
       } as Partial<CanvasStore> as CanvasStore;
     }),
 
   // Selection
-  deleteSelected: () =>
-    set(() => {
-      const ids = Object.keys(get().selected) as NodeId[];
-      if (ids.length === 0) return {} as Partial<CanvasStore> as CanvasStore;
-      // Use removeNodes to record history in bulk
-      get().removeNodes(ids);
-      return { selected: {} } as Partial<CanvasStore> as CanvasStore;
-    }),
+  deleteSelected: () => {
+    const s = get();
+    const gid = s.selectedVisualGroupId;
+    const group = gid ? s.visualGroups[gid] : undefined;
+    if (gid && group) {
+      // Compute ids to delete: group's members plus any additionally selected nodes outside the group
+      const selectedIds = Object.keys(s.selected) as NodeId[];
+      const membersSet = new Set<NodeId>(group.members as NodeId[]);
+      const extra = selectedIds.filter((id) => !membersSet.has(id));
+      const idsToRemove = Array.from(new Set<NodeId>([...group.members, ...extra]));
+
+      if (!__isReplayingHistory) get().beginHistory('Delete group');
+      // Record group removal and remove from state
+      set((state) => {
+        const batch = state.historyBatch;
+        let nextBatch = batch || null;
+        if (!__isReplayingHistory && batch) {
+          const gc = (batch.groupChanges || []).slice();
+          gc.push({ kind: 'remove', group });
+          nextBatch = { ...batch, groupChanges: gc } as typeof batch;
+        }
+        const newVg = { ...state.visualGroups };
+        delete newVg[group.id];
+        const clearHover = (id: string | null) => (id === group.id ? null : id);
+        const partial: Partial<CanvasStore> = {
+          visualGroups: newVg,
+          selectedVisualGroupId: clearHover(state.selectedVisualGroupId),
+          hoveredVisualGroupId: clearHover(state.hoveredVisualGroupId),
+          hoveredVisualGroupIdSecondary: clearHover(state.hoveredVisualGroupIdSecondary),
+          selected: state.selected, // will be cleaned by removeNodes and then cleared below
+          ...(!__isReplayingHistory && nextBatch ? { historyBatch: nextBatch } : {}),
+        } as Partial<CanvasStore>;
+        return partial as Partial<CanvasStore> as CanvasStore;
+      });
+      // Remove nodes (will append to the same history batch)
+      get().removeNodes(idsToRemove);
+      // Clear selection at the end
+      set({ selected: {} } as Partial<CanvasStore> as CanvasStore);
+      if (!__isReplayingHistory) get().endHistory();
+      return;
+    }
+    // Default: delete only selected nodes
+    const ids = Object.keys(get().selected) as NodeId[];
+    if (ids.length === 0) return;
+    get().removeNodes(ids);
+    set({ selected: {} } as Partial<CanvasStore> as CanvasStore);
+  },
   clearSelection: () => set({ selected: {} }),
   selectOnly: (id) => set({ selected: { [id]: true } }),
   addToSelection: (id) =>
@@ -1028,7 +1542,7 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
     set((s) => {
       if (s.historyBatch) return {} as Partial<CanvasStore> as CanvasStore;
       return {
-        historyBatch: { label, changes: [], updateIndexById: {} },
+        historyBatch: { label, changes: [], updateIndexById: {}, groupChanges: [] },
       } as Partial<CanvasStore> as CanvasStore;
     }),
   endHistory: () =>
@@ -1036,13 +1550,28 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
       const batch = s.historyBatch;
       if (!batch) return {} as Partial<CanvasStore> as CanvasStore;
       if (batch.changes.length === 0) {
-        return { historyBatch: null } as Partial<CanvasStore> as CanvasStore;
+        // if there are no node changes but there are group changes, still record
+        if (!batch.groupChanges || batch.groupChanges.length === 0)
+          return {
+            historyBatch: null,
+            alignmentGuides: [],
+            snapOffset: null,
+            snapLockX: null,
+            snapLockY: null,
+          } as Partial<CanvasStore> as CanvasStore;
       }
       const entry: HistoryEntry = { label: batch.label, changes: batch.changes };
+      if (batch.groupChanges && batch.groupChanges.length > 0) {
+        entry.visualGroupChanges = batch.groupChanges;
+      }
       return {
         historyPast: [...s.historyPast, entry],
         historyFuture: [],
         historyBatch: null,
+        alignmentGuides: [],
+        snapOffset: null,
+        snapLockX: null,
+        snapLockY: null,
       } as Partial<CanvasStore> as CanvasStore;
     }),
   undo: () =>
@@ -1122,11 +1651,35 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
             nodes[ch.id] = ch.before;
           }
         }
+        // Apply inverse of visual group changes
+        const visualGroups = { ...s.visualGroups } as Record<string, VisualGroup>;
+        if (entry.visualGroupChanges && entry.visualGroupChanges.length > 0) {
+          for (let i = entry.visualGroupChanges.length - 1; i >= 0; i--) {
+            const gc = entry.visualGroupChanges[i];
+            if (gc.kind === 'add') {
+              // undo add -> remove group
+              delete visualGroups[gc.group.id];
+            } else if (gc.kind === 'remove') {
+              // undo remove -> add group back
+              visualGroups[gc.group.id] = gc.group;
+            }
+          }
+        }
         // Clean selection of non-existing ids
         const nextSel: Record<NodeId, true> = {};
         for (const id of Object.keys(s.selected) as NodeId[]) {
           if (nodes[id]) nextSel[id] = true;
         }
+        // Clean group selection/hover if pointing to non-existing groups
+        let selectedVisualGroupId = s.selectedVisualGroupId;
+        if (selectedVisualGroupId && !visualGroups[selectedVisualGroupId])
+          selectedVisualGroupId = null;
+        let hoveredVisualGroupId = s.hoveredVisualGroupId;
+        if (hoveredVisualGroupId && !visualGroups[hoveredVisualGroupId])
+          hoveredVisualGroupId = null;
+        let hoveredVisualGroupIdSecondary = s.hoveredVisualGroupIdSecondary;
+        if (hoveredVisualGroupIdSecondary && !visualGroups[hoveredVisualGroupIdSecondary])
+          hoveredVisualGroupIdSecondary = null;
         // Apply guide changes (if any)
         let guides = s.guides;
         let activeGuideId = s.activeGuideId;
@@ -1150,6 +1703,10 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
           nodes,
           camera: cam,
           selected: nextSel,
+          visualGroups,
+          selectedVisualGroupId,
+          hoveredVisualGroupId,
+          hoveredVisualGroupIdSecondary,
           guides,
           activeGuideId,
           historyPast: past,
@@ -1230,10 +1787,31 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
             nodes[ch.id] = ch.after;
           }
         }
+        // Apply visual group changes forward
+        const visualGroups = { ...s.visualGroups } as Record<string, VisualGroup>;
+        if (entry.visualGroupChanges && entry.visualGroupChanges.length > 0) {
+          for (const gc of entry.visualGroupChanges) {
+            if (gc.kind === 'add') {
+              visualGroups[gc.group.id] = gc.group;
+            } else if (gc.kind === 'remove') {
+              delete visualGroups[gc.group.id];
+            }
+          }
+        }
         const nextSel: Record<NodeId, true> = {};
         for (const id of Object.keys(s.selected) as NodeId[]) {
           if (nodes[id]) nextSel[id] = true;
         }
+        // Clean group selection/hover if pointing to non-existing groups
+        let selectedVisualGroupId = s.selectedVisualGroupId;
+        if (selectedVisualGroupId && !visualGroups[selectedVisualGroupId])
+          selectedVisualGroupId = null;
+        let hoveredVisualGroupId = s.hoveredVisualGroupId;
+        if (hoveredVisualGroupId && !visualGroups[hoveredVisualGroupId])
+          hoveredVisualGroupId = null;
+        let hoveredVisualGroupIdSecondary = s.hoveredVisualGroupIdSecondary;
+        if (hoveredVisualGroupIdSecondary && !visualGroups[hoveredVisualGroupIdSecondary])
+          hoveredVisualGroupIdSecondary = null;
         // Apply guide changes (if any)
         let guides = s.guides;
         let activeGuideId = s.activeGuideId;
@@ -1257,6 +1835,10 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
           nodes,
           camera: cam,
           selected: nextSel,
+          visualGroups,
+          selectedVisualGroupId,
+          hoveredVisualGroupId,
+          hoveredVisualGroupIdSecondary,
           guides,
           activeGuideId,
           historyPast: past,
@@ -1426,4 +2008,59 @@ export function useRulersActions(): Pick<
     clearGuides: s.clearGuides,
     setActiveGuide: s.setActiveGuide,
   }));
+}
+
+// Transform & overlay helpers
+export function useIsTransforming(): boolean {
+  return useCanvasStore((s) => s.isTransforming);
+}
+
+export function useActiveEditNodeId(): NodeId | null {
+  return useCanvasStore((s) => {
+    if (s.innerEditNodeId) return s.innerEditNodeId;
+    const ids = Object.keys(s.selected) as NodeId[];
+    return ids.length === 1 ? (ids[0] as NodeId) : null;
+  });
+}
+
+export function useEditBoundingBox(): {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  width: number;
+  height: number;
+} | null {
+  return useCanvasStore((s) => {
+    const active = s.innerEditNodeId;
+    const selectedIds = Object.keys(s.selected) as NodeId[];
+    const ids: NodeId[] = active
+      ? [active]
+      : selectedIds.length > 0
+        ? (selectedIds as NodeId[])
+        : [];
+    if (ids.length === 0) return null;
+    let left = Infinity,
+      top = Infinity,
+      right = -Infinity,
+      bottom = -Infinity;
+    for (const id of ids) {
+      const n = s.nodes[id];
+      if (!n) continue;
+      left = Math.min(left, n.x);
+      top = Math.min(top, n.y);
+      right = Math.max(right, n.x + n.width);
+      bottom = Math.max(bottom, n.y + n.height);
+    }
+    if (
+      !Number.isFinite(left) ||
+      !Number.isFinite(top) ||
+      !Number.isFinite(right) ||
+      !Number.isFinite(bottom)
+    )
+      return null;
+    const width = Math.max(0, right - left);
+    const height = Math.max(0, bottom - top);
+    return { left, top, right, bottom, width, height };
+  });
 }

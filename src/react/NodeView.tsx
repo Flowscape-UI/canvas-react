@@ -51,6 +51,7 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
   const { panBy } = useCanvasActions();
   const { enterInnerEdit, exitInnerEdit } = useInnerEditActions();
   const { beginHistory, endHistory } = useHistoryActions();
+  const setDraggingNode = useCanvasStore((s) => s.setDraggingNode);
   // Grouping is triggered exclusively via Ctrl/Cmd+G keyboard shortcut handled in useCanvasNavigation.
 
   // Drag bookkeeping
@@ -194,6 +195,19 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
   };
   // Merge appearance props and set up content helpers
   const A = { ...defaultAppearance, ...(appearance ?? {}) } as NodeAppearance;
+  // Visual: derive rotation and border radius from node data
+  const rotationDeg = node.rotation ?? 0;
+  const transformRotate = rotationDeg ? `rotate(${rotationDeg}deg)` : undefined;
+  const corner = node.cornerRadius;
+  let borderRadiusApplied: number | string | undefined = undefined;
+  if (!unstyled) {
+    if (corner != null) {
+      if (typeof corner === 'number') borderRadiusApplied = corner;
+      else borderRadiusApplied = `${corner.tl}px ${corner.tr}px ${corner.br}px ${corner.bl}px`;
+    } else {
+      borderRadiusApplied = A.borderRadius;
+    }
+  }
   const hasCustomChildren = children != null;
   const contentLabel = 'New Node';
   const innerEditId = useInnerEdit();
@@ -210,7 +224,8 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
   // - Inner-edit: nodes in the selected group behave like ordinary nodes (show selection/hover)
   // - The double-clicked node is NOT forced to look selected; selection drives visuals
   const showSelectedUi =
-    (innerEditActive && nodeInSelectedGroup && isSelected) || (!nodeIsInAnyVisualGroup && isSelected);
+    (innerEditActive && nodeInSelectedGroup && isSelected) ||
+    (!nodeIsInAnyVisualGroup && isSelected);
   // When inner-edit ends (via empty-area click in Canvas), return to default drag scope
   useEffect(() => {
     if (!innerEditId) {
@@ -390,7 +405,10 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
     // Decide potential drag scope honoring double-click mode
     if (!ctrlMetaAtDownRef.current) {
       const mode = dragScopeModeRef.current;
-      const nodeScopeActive = (mode === 'node' && !!innerEditId) || clickedInside || (innerEditActive && nodeInSelectedGroup);
+      const nodeScopeActive =
+        (mode === 'node' && !!innerEditId) ||
+        clickedInside ||
+        (innerEditActive && nodeInSelectedGroup);
       if (nodeScopeActive) {
         // Explicit node scope while inner-edit active, or clicked inside inner-edit -> single-node drag
         dragGroupMembersRef.current = null;
@@ -565,6 +583,11 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
           }
         }
         draggingRef.current = true;
+        try {
+          setDraggingNode(true);
+        } catch {
+          // ignore
+        }
         if (!historyStartedRef.current) {
           beginHistory();
           historyStartedRef.current = true;
@@ -582,6 +605,18 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
     // Convert to WORLD delta using current zoom
     const dz = camera.zoom || 1;
     moveSelectedBy(dxScreen / dz, dyScreen / dz);
+    // Keep cursor anchored to the node when snapping applies extra correction.
+    // We compensate our pointer bookkeeping by the snapOffset (world) converted to screen px.
+    try {
+      const st = useCanvasStore.getState();
+      const so = st.snapOffset; // { dx, dy } in WORLD coordinates
+      if (so && (so.dx !== 0 || so.dy !== 0)) {
+        lastXRef.current += so.dx * dz;
+        lastYRef.current += so.dy * dz;
+      }
+    } catch {
+      // ignore
+    }
 
     // Update edge speeds for auto-pan and start/stop RAF accordingly
     updateEdgeSpeeds(e.clientX, e.clientY);
@@ -591,12 +626,25 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
     draggingRef.current = false;
     pointerIdRef.current = null;
     stopAutoPan();
+    try {
+      setDraggingNode(false);
+    } catch {
+      // ignore
+    }
     // Clear gesture-scoped flags
     forceNodeDragGestureRef.current = false;
     doubleClickHoldCandidateRef.current = false;
     if (historyStartedRef.current) {
       endHistory();
       historyStartedRef.current = false;
+    }
+    // Clear ephemeral snapping UI state
+    try {
+      const st = useCanvasStore.getState();
+      st.clearAlignmentGuides();
+      st.clearSnapOffset();
+    } catch {
+      // ignore
     }
   };
 
@@ -673,7 +721,8 @@ export const NodeView = forwardRef<HTMLDivElement, NodeViewProps>(function NodeV
         border: unstyled
           ? undefined
           : `${A.borderWidth}px solid ${showSelectedUi ? A.selectedBorderColor : A.borderColor}`,
-        borderRadius: unstyled ? undefined : A.borderRadius,
+        borderRadius: borderRadiusApplied,
+        transform: transformRotate,
         background: unstyled ? undefined : A.background,
         color: unstyled ? undefined : A.textColor,
         overflow: 'hidden',
