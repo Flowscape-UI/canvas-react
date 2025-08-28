@@ -62,13 +62,8 @@ jobs:
         run: |
           set -e
           PKG_NAME=$(node -p "require('./package.json').name")
-          echo "Checking if $PKG_NAME exists in GitHub Packages registry..."
+          echo "Publishing $PKG_NAME to GitHub Packages registry"
           npm whoami --registry=https://npm.pkg.github.com/ || true
-          if npm view "$PKG_NAME" version --registry=https://npm.pkg.github.com/ >/dev/null 2>&1; then
-            echo "$PKG_NAME already exists in GitHub Packages — skipping publish."
-          else
-            echo "Publishing $PKG_NAME to GitHub Packages registry"
-            npm publish --registry=https://npm.pkg.github.com/
-          fi
+          npm publish --registry=https://npm.pkg.github.com/
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
