@@ -385,8 +385,9 @@ describe('NodeView DnD UI + hit-testing vs canvas pan', () => {
     expect(s.historyPast.length).toBe(1);
     const entry = s.historyPast[0];
     expect(entry.changes.length).toBe(1);
-    const ch = entry.changes[0] as any;
+    const ch = entry.changes[0];
     expect(ch.kind).toBe('update');
+    if (ch.kind !== 'update') throw new Error('Expected update change');
     expect(ch.before).toMatchObject({ id: 'd1', x: 100, y: 100 });
     expect(ch.after).toMatchObject({ id: 'd1', x: 132, y: 112 });
 
