@@ -80,7 +80,7 @@
     "storybook": "^9.1.2",
     "typescript": "5.9.2",
     "vite": "^5.4.0",
-    "vitest": "^2.0.5"
+    "vitest": "^3.2.4"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
